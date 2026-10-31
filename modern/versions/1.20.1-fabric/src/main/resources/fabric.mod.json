@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "buwangmusic",
+  "version": "${version}",
+  "name": "BuWang Music",
+  "description": "基于DangoMusic与AllMusic项目进行简单修改的模组，仅针对自己朋友内联机用进行了修改和优化",
+  "authors": ["yisibuwang"],
+  "contact": {
+    "homepage": "https://github.com/yisibuwang/BuWangMusic",
+    "sources": "https://github.com/yisibuwang/BuWangMusic",
+    "issues": "https://github.com/yisibuwang/BuWangMusic/issues"
+  },
+  "license": "GPL-3.0",
+  "icon": "assets/dangomusic/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "client": ["me.sorihiko.dango.fabric.DangoMusicFabric"],
+    "main": ["me.sorihiko.dango.fabric.DangoMusicFabricServer"]
+  },
+  "mixins": ["dangomusic.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_range}",
+    "java": ">=${java_version}"
+  }
+}

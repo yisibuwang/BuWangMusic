@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-3.0"
+issueTrackerURL="https://github.com/yisibuwang/BuWangMusic/issues"
+
+[[mods]]
+modId="buwangmusic"
+version="${version}"
+displayName="BuWang Music"
+authors="yisibuwang"
+displayURL="https://github.com/yisibuwang/BuWangMusic"
+logoFile="assets/dangomusic/icon.png"
+# 客户端功能（播放器 / 歌词 / 一起听歌的界面）都在客户端；
+# 服务器端只装同步层（一起听歌的服务端状态 + 网络通道），不用渲染任何东西。
+# 不强制客户端和服务器版本一致：服务器没装时客户端只是没有一起听歌。
+displayTest="IGNORE_ALL_VERSION"
+description='''
+在 Minecraft 里听网易云 / QQ 音乐 / 酷狗，并和同一服务器里的朋友一起听歌：服务端负责同步歌曲与进度，不需要任何外部服务。
+'''
+
+[[dependencies.buwangmusic]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.buwangmusic]]
+modId="minecraft"
+mandatory=true
+versionRange="${minecraft_range}"
+ordering="NONE"
+side="CLIENT"

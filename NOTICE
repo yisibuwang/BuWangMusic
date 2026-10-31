@@ -1,0 +1,45 @@
+BuWang Music
+============
+
+这是 DangoMusic 的非官方修改版（unofficial fork），不是 DangoMusic 官方发布，
+也没有获得原作者的任何担保或背书。
+
+上游项目
+--------
+DangoMusic
+作者：Sorihiko
+仓库：https://github.com/Sorihiko/DangoMusic
+许可证：GPL-3.0
+
+上游代码的版权归原作者所有。本仓库在 GPL-3.0 下继续分发，并保留上游的
+包名（me.sorihiko.dango.*）、界面与音源接入逻辑，以便对照上游源码。
+
+本仓库的修改
+------------
+修改自上游 DangoMusic 1.7.1，修改开始日期：2026-10-31。
+
+主要改动：
+1. 「一起听歌」的同步层重写：移除 Firebase / 第三方中继，改为服务端权威状态，
+   客户端通过 Minecraft 自带网络通道（Fabric CustomPayload / Forge SimpleChannel /
+   NeoForge payload）收发状态；服务端保存房间、当前歌曲、进度、共享播放列表与成员权限。
+2. 增加房间码与服务器内房间列表、共享播放列表（去重、重复点歌提到队首）、
+   房主对成员「切歌 / 暂停与拖进度 / 点歌」的权限开关。
+3. 队列按字节拆包，避免几百首歌触发自定义包 32 KB 上限；加载失败不自动跳歌，
+   改为每 5 秒重试并提示原因。
+4. 播放栏新增播放列表面板（☰）与全局气泡提示。
+5. 把同一套改造移植到 1.20.1 / 1.21.1 / 1.21.11 / 26.1.2 / 26.2 / 26.3 的
+   Fabric 与 Forge / NeoForge 目标；1.8.9（legacy）不再维护。
+6. 改为 BuWang Music 的模组 id、图标与文案。
+
+第三方组件
+----------
+- Kotlin 标准库（Apache-2.0）
+- JLayer / javazoom（LGPL-2.1）
+- ZXing（Apache-2.0）
+
+以上组件以各自许可证分发，具体条款见对应项目仓库。
+
+许可证
+------
+本仓库整体以 GPL-3.0 分发，完整条款见根目录 LICENSE。
+如果你再分发本项目的修改版本，请同样遵守 GPL-3.0，并保留本 NOTICE 与上游署名。

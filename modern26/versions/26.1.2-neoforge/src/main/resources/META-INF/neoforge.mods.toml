@@ -1,0 +1,34 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="GPL-3.0"
+issueTrackerURL="https://github.com/yisibuwang/BuWangMusic/issues"
+
+[[mods]]
+modId="buwangmusic"
+version="${version}"
+displayName="BuWang Music"
+authors="yisibuwang"
+displayURL="https://github.com/yisibuwang/BuWangMusic"
+logoFile="assets/dangomusic/icon.png"
+description='''
+基于DangoMusic与AllMusic项目进行简单修改的模组，仅针对自己朋友内联机用进行了修改和优化：
+客户端提供网易云 / QQ / 酷狗播放器、3D 歌词与"一起听歌"界面；服务端只需安装同一个 jar，
+就能在同一服务器里同步播放状态（歌曲、进度、暂停、共享播放列表、房间与权限）。
+'''
+
+[[mixins]]
+config="dangomusic.mixins.json"
+
+[[dependencies.buwangmusic]]
+modId="neoforge"
+type="required"
+versionRange="[26.1.2,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.buwangmusic]]
+modId="minecraft"
+type="required"
+versionRange="${minecraft_range}"
+ordering="NONE"
+side="BOTH"

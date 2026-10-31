@@ -1,0 +1,32 @@
+## Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+build.log
+out/
+bin/
+
+## 本地构建与发布的临时目录
+.ghome/
+dist/
+run/
+logs/
+
+## IDE / 编辑器 / 系统
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+## 本地登录态与播放器运行时数据
+*_session.json
+*_session.json.tmp
+netease_cookie.txt
+config/dangomusic/
+firebase_auth.json
+
+## 日志与崩溃转储
+*.log
+hs_err_pid*.log
+replay_pid*.log
