@@ -89,6 +89,7 @@ subprojects {
         "shade"("javazoom:jlayer:1.0.1")
         "shade"("com.google.zxing:core:3.3.3")
         "shade"("de.sciss:jump3r:1.0.5")
+        "shade"("org.jcodec:jcodec:0.2.5")
     }
 
     tasks.named<ProcessResources>("processResources") {
@@ -118,6 +119,7 @@ subprojects {
         relocate("javazoom", "me.sorihiko.dango.shadow.javazoom")
         relocate("com.google.zxing", "me.sorihiko.dango.shadow.zxing")
         relocate("de.sciss.jump3r", "me.sorihiko.dango.shadow.jump3r")
+    relocate("net.sourceforge.jaad", "me.sorihiko.dango.shadow.jaad")
         exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module")
         addMultiReleaseAttribute.set(false)
     }

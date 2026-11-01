@@ -146,6 +146,8 @@ object TogetherProtocol {
         val maxKbps: Int = 0,
         /** 服务端是否允许共享本地音乐 */
         val allowLocal: Boolean = false,
+        /** 服务端是否允许把 B 站曲目放进房间 */
+        val allowBili: Boolean = false,
     )
 
     fun parse(raw: String): JsonObject? = try {
@@ -294,6 +296,7 @@ object TogetherProtocol {
         target.addProperty("quality", snapshot.quality)
         target.addProperty("maxKbps", snapshot.maxKbps)
         if (snapshot.allowLocal) target.addProperty("allowLocal", true)
+        if (snapshot.allowBili) target.addProperty("allowBili", true)
     }
 
     fun readRoom(message: JsonObject): RoomSnapshot? {
@@ -316,6 +319,7 @@ object TogetherProtocol {
             quality = message.num("quality").toInt(),
             maxKbps = message.num("maxKbps").toInt(),
             allowLocal = message.flag("allowLocal"),
+            allowBili = message.flag("allowBili"),
         )
     }
 

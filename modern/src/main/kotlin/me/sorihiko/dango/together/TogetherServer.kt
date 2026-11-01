@@ -3,6 +3,7 @@ package me.sorihiko.dango.together
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import me.sorihiko.dango.DangoLogger
+import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.NeteaseTrack
 import me.sorihiko.dango.party.PartyTrackCodec
 import me.sorihiko.dango.party.TogetherProtocol
@@ -56,6 +57,8 @@ object TogetherServer {
         var stamp: Long = 0L
         /** 房主选的中转码率（kbps），0 = 原始码率不转码 */
         var quality: Int = 0
+        /** 被服务器挡下的本地曲目：只提示一次，避免每次上报都发错 */
+        var blockedKey: String = ""
         /** 正在听中转的人 */
         val relayMembers = LinkedHashSet<UUID>()
         /** 最近的中转分片（序号 + 歌曲标识 + base64） */
@@ -81,6 +84,7 @@ object TogetherServer {
             quality = quality,
             maxKbps = TogetherConfig.maxBitrate,
             allowLocal = TogetherConfig.allowLocalMusic,
+            allowBili = TogetherConfig.allowBilibili,
         )
     }
 
@@ -246,6 +250,16 @@ object TogetherServer {
         }
         val tracks = readTracks(message)
         if (tracks.isEmpty()) return
+        if (!TogetherConfig.allowBilibili && tracks.any { it.source == MusicSource.BILIBILI }) {
+            addBatches.remove(player.uuid)
+            error(player, "服务器没有开启 B 站音源共享")
+            return
+        }
+        if (!TogetherConfig.allowLocalMusic && tracks.any { it.source == MusicSource.LOCAL }) {
+            addBatches.remove(player.uuid)
+            error(player, "服务器没有开启本地音乐共享")
+            return
+        }
         // 同一首歌只保留一份（客户端双击 / 多个成员同时点同一首）
         val know = room.queue.mapTo(HashSet()) { it.key }
         var added = 0
@@ -301,6 +315,14 @@ object TogetherServer {
             return
         }
         val track = TogetherProtocol.readTrack(message) ?: return
+        if (!TogetherConfig.allowBilibili && track.source == MusicSource.BILIBILI) {
+            error(player, "服务器没有开启 B 站音源共享")
+            return
+        }
+        if (!TogetherConfig.allowLocalMusic && track.source == MusicSource.LOCAL) {
+            error(player, "服务器没有开启本地音乐共享")
+            return
+        }
         val existing = room.queue.indexOfFirst { it.key == track.key }
         if (existing >= 0) room.queue.removeAt(existing)
         room.queue.add(0, track)
@@ -419,6 +441,15 @@ object TogetherServer {
         val room = room(player) ?: return
         if (!isHost(room, player)) return
         val track = (message.get("track") as? JsonObject)?.let { PartyTrackCodec.read(it) } ?: return
+        if (!TogetherConfig.allowBilibili && track.source == MusicSource.BILIBILI) return
+        if (!TogetherConfig.allowLocalMusic && track.source == MusicSource.LOCAL) {
+            // 关掉本地音乐共享后，房主再放本地文件也不进房间；同一首只提示一次，免得几百毫秒一条
+            if (room.blockedKey != track.key) {
+                room.blockedKey = track.key
+                error(player, "服务器没有开启本地音乐共享")
+            }
+            return
+        }
         if (room.track?.key != track.key) {
             // 房主放的歌和服务端记录的不一样：以服务端播放列表为准，找到就纠正
             val index = room.queue.indexOfFirst { it.key == track.key }

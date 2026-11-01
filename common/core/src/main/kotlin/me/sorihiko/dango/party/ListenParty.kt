@@ -93,6 +93,7 @@ object ListenParty {
         private set
     /** 服务端是否允许共享本地音乐 */
     @Volatile var allowLocal = false
+    @Volatile var allowBili = false
         private set
 
     val uid: String get() = myUid
@@ -365,7 +366,12 @@ object ListenParty {
             deny("房主没有开放点歌权限")
             return
         }
-        val supported = tracks.filter { supportsSource(it.source) }
+        val allowed = if (allowBili) tracks else tracks.filter { it.source != MusicSource.BILIBILI }
+        if (allowed.size < tracks.size && allowed.isEmpty()) {
+            deny("服务器没有开启 B 站音源共享")
+            return
+        }
+        val supported = allowed.filter { supportsSource(it.source) }
         if (supported.isEmpty()) return
 
         val now = System.currentTimeMillis()
@@ -617,6 +623,7 @@ object ListenParty {
         quality = snapshot.quality
         maxKbps = snapshot.maxKbps
         allowLocal = snapshot.allowLocal
+        allowBili = snapshot.allowBili
         TogetherRelay.setEnabled(snapshot.allowLocal, snapshot.quality)
         val wasInRoom = inRoom
         roomCode = snapshot.code
@@ -873,12 +880,21 @@ object ListenParty {
         val st = MusicPlayer.state
         if (st == MusicPlayer.State.ERROR) {
             // 加载 / 播放失败：房间内不自动跳歌，状态栏提示并每 5 秒重试一次
+            val bili = s.track.source == MusicSource.BILIBILI
             if (!status.contains("自动重试")) {
-                status = "这首歌在你这边放不了：可能需要登录或会员（每 5 秒自动重试）"
+                status = if (bili) {
+                    "这首歌在你这边取不到：可能要登录 B 站或大会员（每 5 秒自动重试）"
+                } else {
+                    "这首歌在你这边放不了：可能需要登录或会员（每 5 秒自动重试）"
+                }
             }
             if (failureNoticeKey != s.track.key) {
                 failureNoticeKey = s.track.key
-                Notices.post("《${s.track.name}》在你这边放不了：可能需要登录或会员，正在自动重试", Notices.WARN)
+                Notices.post(
+                    if (bili) "《${s.track.name}》在你这边取不到：可能要登录 B 站或大会员，正在自动重试"
+                    else "《${s.track.name}》在你这边放不了：可能需要登录或会员，正在自动重试",
+                    Notices.WARN,
+                )
             }
             val now = System.currentTimeMillis()
             if (now - lastRetry >= RETRY_MS) loadRemote(s)

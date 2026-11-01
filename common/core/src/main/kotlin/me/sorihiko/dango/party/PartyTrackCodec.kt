@@ -22,6 +22,7 @@ object PartyTrackCodec {
             MusicSource.QQ -> if (validMid(native)) MusicSources.stableId(source,native) else return null
             MusicSource.KUGOU -> if (native.matches(Regex("[A-F0-9]{32}"))) MusicSources.stableId(source,native) else return null
             MusicSource.LOCAL -> if (native.isEmpty()) return null else MusicSources.stableId(source, native)
+            MusicSource.BILIBILI -> if (native.matches(Regex("""BV[0-9A-Za-z]{10}(:\d+)?"""))) MusicSources.stableId(source, native) else return null
         }
         val media = data.text("mediaId").ifEmpty { native }
         val album = data.text("albumId")

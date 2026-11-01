@@ -169,6 +169,8 @@ object MusicPlayer {
 
     /** 当前声音来自房间里的中转流（不是本地文件、也不是平台直链） */
     @Volatile private var audioRelay = false
+    /** Bilibili 的 AAC 音频（整段放在内存里，seek 直接按帧下标找） */
+    @Volatile private var biliMedia: me.sorihiko.dango.music.bili.BiliTrack? = null
 
     private fun canPlay(track: NeteaseTrack): Boolean {
         if (me.sorihiko.dango.party.ListenParty.role == me.sorihiko.dango.party.ListenParty.Role.NONE || me.sorihiko.dango.party.ListenParty.supportsSource(track.source)) return true
@@ -227,13 +229,16 @@ object MusicPlayer {
 
     /** 一起听：跳到 ms 并设成播放 / 暂停（当前这首已经下载好时用） */
     fun syncTo(ms: Long, play: Boolean) {
-        val bytes = audio ?: return
+        // B 站曲目没有整段字节，只有解出来的帧表：按帧重新起播
+        val bili = if (current?.source == MusicSource.BILIBILI) biliMedia else null
+        val bytes = audio
+        if (bili == null && bytes == null) return
         val target = ms.coerceIn(0L, max(0L, durationMs - 500))
         pausedAtMs = target
         state = if (play) State.PLAYING else State.PAUSED   // 解码线程据此决定声卡是开着还是停着
         val gen = ++generation
         stopLine()
-        startDecode(gen, bytes, target)
+        if (bili != null) startDecodeAac(gen, bili, target) else startDecode(gen, bytes!!, target)
     }
 
     fun next() {
@@ -303,6 +308,7 @@ object MusicPlayer {
     }
 
     fun seek(ms: Long) {
+        val bili = current?.source == MusicSource.BILIBILI
         if (party.inRoom && !party.isHost) {
             if (!party.canPause) {
                 party.deny("房主没有开放暂停/拖进度权限")
@@ -310,7 +316,12 @@ object MusicPlayer {
             }
             party.requestState(me.sorihiko.dango.party.TogetherProtocol.OP_SEEK, ms.coerceIn(0L, max(0L, durationMs - 500)))
             // 走中转收听时本机没有整首歌，进度由房主带头，这里不再本地跳
-            if (audioRelay || audio == null) return
+            if (audioRelay) return
+            if (!bili && audio == null) return
+        }
+        if (bili) {
+            seekAac(ms)
+            return
         }
         if (audio == null) return
         seekLocal(ms)
@@ -331,6 +342,7 @@ object MusicPlayer {
         ++generation
         stopLine()
         audio = null
+        biliMedia = null
         current = null
         state = State.STOPPED
         message = ""
@@ -341,8 +353,14 @@ object MusicPlayer {
     private fun load(gen: Int, track: NeteaseTrack, startAt: (() -> Long)? = null, paused: Boolean = false) {
         audioRelay = false
         positionBaseMs = 0L
+        // 换歌先把上一首的帧表丢掉：失败时若还留着，syncTo / seek 会拿旧歌的音频去播新歌
+        biliMedia = null
         try {
             if (track.source == MusicSource.LOCAL) {
+                // 房间里的本地歌：成员本来就没有这个文件，缺的是房主的中转，不是"刷新本地音乐"
+                if (LocalLibrary.entry(track) == null && party.inRoom && !party.isHost) {
+                    return fail(gen, "这首歌在你这边没有，需要房主开启本地音乐共享")
+                }
                 val bytes = LocalLibrary.read(track)
                 if (gen != generation) return
                 if (bytes == null || bytes.size < 10_000) return fail(gen, "找不到这个本地文件了，刷新一下本地音乐")
@@ -355,6 +373,23 @@ object MusicPlayer {
                     state = State.PAUSED
                 } else {
                     startDecode(gen, bytes, start)
+                }
+                return
+            }
+            if (track.source == MusicSource.BILIBILI) {
+                val media = BiliSource.open(track)
+                if (gen != generation) return
+                if (media == null) return fail(gen, "B 站音频取不到：链接可能过期、需要登录，或者这个稿件没有音轨")
+                biliMedia = media
+                audio = null
+                message = ""
+                trackGain = 1f
+                val start = (startAt?.invoke() ?: 0L).coerceIn(0L, max(0L, track.durationMs - 1000))
+                if (paused) {
+                    pausedAtMs = start
+                    state = State.PAUSED
+                } else {
+                    startDecodeAac(gen, media, start)
                 }
                 return
             }
@@ -656,6 +691,147 @@ object MusicPlayer {
                 state = State.PAUSED
             } else if (repeatOne) {
                 // 复用已下载的音频，从头解码，不重新请求播放地址或下载。
+                seek(0L)
+            } else {
+                next()
+            }
+        }
+    }
+
+    /** 拖进度：AAC 直接跳到对应帧，不重新下载 */
+    private fun seekAac(ms: Long) {
+        val media = biliMedia ?: return
+        val target = ms.coerceIn(0L, max(0L, durationMs - 500))
+        if (state == State.PAUSED) pausedAtMs = target
+        positionBaseMs = 0L
+        val gen = ++generation
+        stopLine()
+        startDecodeAac(gen, media, target)
+    }
+
+    private fun startDecodeAac(gen: Int, media: me.sorihiko.dango.music.bili.BiliTrack, startMs: Long) {
+        Thread({ decodeAacLoop(gen, media, startMs) }, "Dango-MusicDecode").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /** 与 mp3 的 decodeLoop 同一套流程：解码、暂停等待、鼓点、音量均衡、环境音效。 */
+    private fun decodeAacLoop(gen: Int, media: me.sorihiko.dango.music.bili.BiliTrack, startMs: Long) {
+        var out: AudioOutput? = null
+        var finished = false
+        try {
+            val first = media.indexAt(startMs)
+            seekBaseMs = first.toLong() * 1024L * 1000L / media.sampleRate
+            clearBeats()
+            EnvironmentAudio.reset()
+            val decoder = media.newDecoder()
+            val buffer = media.newBuffer()
+            val frameMs = media.frameMs.toFloat()
+            val channels = media.channels
+            var index = first
+            var decodedMs = seekBaseMs.toFloat()
+            var lowPass = 0f
+            var avgEnergy = 0f
+            var lastBeatMs = -1000f
+            var appliedVolume = -1f
+            while (gen == generation) {
+                if (index >= media.frameCount) {
+                    finished = true
+                    break
+                }
+                val pcmBytes = try {
+                    decoder.decodeFrame(media.frame(index), buffer)
+                    buffer.data
+                } catch (_: Throwable) {
+                    null
+                }
+                index++
+                if (pcmBytes == null || pcmBytes.isEmpty()) continue
+                if (out == null) {
+                    val format = AudioFormat(media.sampleRate.toFloat(), 16, channels, true, false)
+                    out = openOutput(format, media.sampleRate * channels * 2 / 4)   // 约 0.25 秒缓冲
+                    line = out
+                    if (state == State.PAUSED) {
+                        out.stop()
+                    } else {
+                        out.start()
+                        state = State.PLAYING
+                    }
+                }
+                while (state == State.PAUSED && gen == generation) {
+                    if (out.isRunning) out.stop()
+                    Thread.sleep(15)
+                }
+                if (gen != generation) break
+                if (volume != appliedVolume) {
+                    out.setVolume(volume)
+                    appliedVolume = volume
+                }
+                val samples = pcmBytes.size / 2
+                val pcm = ShortArray(samples)
+                for (k in 0 until samples) {
+                    pcm[k] = ((pcmBytes[k * 2].toInt() and 0xFF) or (pcmBytes[k * 2 + 1].toInt() shl 8)).toShort()
+                }
+                val ch = channels.coerceAtLeast(1)
+                var energy = 0f
+                var k = 0
+                while (k + ch - 1 < samples) {
+                    var mono = 0f
+                    for (c in 0 until ch) mono += pcm[k + c].toFloat()
+                    mono /= ch * 32768f
+                    lowPass += (mono - lowPass) * 0.04f
+                    energy += lowPass * lowPass
+                    k += ch
+                }
+                energy /= (samples / ch).coerceAtLeast(1)
+                if (avgEnergy > 0f && energy > avgEnergy * 1.7f && energy > 2e-4f && decodedMs - lastBeatMs > 170f) {
+                    val strength = ((energy / avgEnergy - 1.7f) / 2f + 0.45f).coerceIn(0f, 1f)
+                    synchronized(beats) {
+                        beats.addLast(Beat(decodedMs.toLong(), strength))
+                        while (beats.size > 48) beats.removeFirst()
+                    }
+                    lastBeatMs = decodedMs
+                }
+                avgEnergy = if (avgEnergy == 0f) energy else avgEnergy + (energy - avgEnergy) * (frameMs / 1000f).coerceAtMost(1f)
+                decodedMs += frameMs
+                val gain = trackGain
+                if (gain != 1f) for (i in 0 until samples) pcm[i] = (pcm[i] * gain).toInt().coerceIn(-32768, 32767).toShort()
+                EnvironmentAudio.process(pcm, samples, ch, media.sampleRate, frameMs)
+                val data = ByteArray(samples * 2)
+                for (i in 0 until samples) {
+                    val value = pcm[i].toInt()
+                    data[i * 2] = (value and 0xFF).toByte()
+                    data[i * 2 + 1] = ((value shr 8) and 0xFF).toByte()
+                }
+                out.write(data, 0, data.size)
+            }
+            if (finished && gen == generation) {
+                out?.drain()
+            }
+        } catch (e: Throwable) {
+            DangoLogger.warn("Bilibili decode failed: {}", e.toString())
+            if (gen == generation) {
+                state = State.ERROR
+                message = "播放失败：" + describe(e)
+            }
+        } finally {
+            if (line === out) line = null
+            try {
+                out?.stop()
+                out?.close()
+            } catch (_: Exception) {
+            }
+        }
+        if (finished && gen == generation) {
+            if (party.inRoom) {
+                pausedAtMs = durationMs
+                state = State.PAUSED
+                party.onTrackFinished()
+            } else if (followMode) {
+                pausedAtMs = durationMs
+                state = State.PAUSED
+            } else if (repeatOne) {
                 seek(0L)
             } else {
                 next()

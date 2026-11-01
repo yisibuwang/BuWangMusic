@@ -6,14 +6,16 @@ import me.sorihiko.dango.music.NeteaseApi
 import me.sorihiko.dango.music.NeteasePlaylist
 import me.sorihiko.dango.music.NeteaseTrack
 import me.sorihiko.dango.music.MusicSource
+import me.sorihiko.dango.music.bili.BiliApi
 import me.sorihiko.dango.music.MusicSourceApi
 import me.sorihiko.dango.music.MusicSources
+import me.sorihiko.dango.music.PagedSearch
 import me.sorihiko.dango.music.SourceAccessException
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
-internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, LOCAL, SETTINGS }
+internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, LOCAL, BILI, SETTINGS }
 
 /** 关掉播放器再打开时还保留的界面状态 */
 internal object ScreenState {
@@ -54,6 +56,14 @@ internal object Library {
         private set
     @Volatile var searchError = ""
         private set
+    /** 搜索翻页：交给实现 PagedSearch 的音源，界面在列表底部显示「加载更多」。 */
+    @Volatile var searchHasMore = false
+        private set
+    @Volatile var searchMoreLoading = false
+        private set
+    private var searchPage = 1
+    private var searchQuery = ""
+    val searchPaged: Boolean get() = MusicSources.api(source) is PagedSearch
     private val tracksCache = ConcurrentHashMap<Long, List<NeteaseTrack>>()
     private val tracksLoading = ConcurrentHashMap.newKeySet<Long>()
     private val tracksFailed = ConcurrentHashMap.newKeySet<Long>()
@@ -128,6 +138,10 @@ internal object Library {
     @Synchronized fun search(q: String) {
         val request = request()
         val serial = ++searchSerial
+        searchQuery = q
+        searchPage = 1
+        searchHasMore = false
+        searchMoreLoading = false
         searching = true
         searchResults = null
         searchError = ""
@@ -135,7 +149,11 @@ internal object Library {
             var error = ""
             val result = try {
                 request.api.search(q).also {
-                    if (request.api.source == MusicSource.NETEASE) error = NeteaseApi.lastSearchError
+                    when (request.api.source) {
+                        MusicSource.NETEASE -> error = NeteaseApi.lastSearchError
+                        MusicSource.BILIBILI -> error = BiliApi.lastSearchError
+                        else -> Unit
+                    }
                 }
             } catch (e: Exception) {
                 // 失败原因记进日志，界面只拿公开的错误文案
@@ -143,8 +161,42 @@ internal object Library {
                 error = publicError(e)
                 emptyList()
             }
+            val paged = request.api as? PagedSearch
             publish(request) {
-                if (serial == searchSerial) { searchResults = result; searchError = error; searching = false }
+                if (serial == searchSerial) {
+                    searchResults = result
+                    searchError = error
+                    searching = false
+                    searchHasMore = paged != null && error.isEmpty() && result.size >= paged.pageSize
+                }
+            }
+        }
+    }
+
+    /** 加载搜索的下一页；只有实现了 PagedSearch 的音源才有下一页。 */
+    @Synchronized fun searchMore() {
+        val paged = MusicSources.api(source) as? PagedSearch ?: return
+        if (!searchHasMore || searchMoreLoading || searching) return
+        val request = request()
+        val serial = searchSerial
+        val next = searchPage + 1
+        val query = searchQuery
+        searchMoreLoading = true
+        worker.execute {
+            var error = ""
+            val batch = try { paged.searchPage(query, next) } catch (e: Exception) { error = publicError(e); emptyList() }
+            if (error.isEmpty() && source == MusicSource.BILIBILI) error = BiliApi.lastSearchError
+            publish(request) {
+                if (serial != searchSerial) return@publish
+                if (error.isEmpty() && batch.isNotEmpty()) {
+                    searchResults = (searchResults ?: emptyList()) + batch
+                    searchPage = next
+                    searchHasMore = batch.size >= paged.pageSize
+                } else {
+                    searchHasMore = false
+                    if (error.isNotEmpty()) searchError = error
+                }
+                searchMoreLoading = false
             }
         }
     }
@@ -170,6 +222,7 @@ internal object Library {
         recommend = null; recommendLoading = false
         charts = null; chartsLoading = false
         searchResults = null; searching = false; searchError = ""; status = ""
+        searchHasMore = false; searchMoreLoading = false; searchPage = 1; searchQuery = ""
         reloadPlaylists()
         loadRecommend()
         if (ScreenState.page == Page.CHARTS) loadCharts()

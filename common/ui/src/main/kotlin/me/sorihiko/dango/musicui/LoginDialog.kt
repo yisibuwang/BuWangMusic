@@ -7,6 +7,7 @@ import me.sorihiko.dango.gfx.Texture
 import me.sorihiko.dango.music.MusicScreen
 import me.sorihiko.dango.music.NeteaseLogin
 import me.sorihiko.dango.music.NativeLogin
+import me.sorihiko.dango.music.bili.BiliLogin
 import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.MusicSources
 import me.sorihiko.dango.platform.Keys
@@ -33,27 +34,48 @@ internal class LoginDialog(private val screen: MusicScreen) {
     }
 
     val visible: Boolean get() = showing
-    private val native: Boolean get() = provider != MusicSource.NETEASE
-    private val state get() = if (native) NativeLogin.state else NeteaseLogin.state
-    private val image get() = if (native) NativeLogin.qrImage else NeteaseLogin.qrImage
+    private val bili: Boolean get() = provider == MusicSource.BILIBILI
+    private val native: Boolean get() = provider == MusicSource.QQ || provider == MusicSource.KUGOU
+    private val state get() = when {
+        bili -> BiliLogin.state
+        native -> NativeLogin.state
+        else -> NeteaseLogin.state
+    }
+    private val image get() = when {
+        bili -> BiliLogin.qrImage
+        native -> NativeLogin.qrImage
+        else -> NeteaseLogin.qrImage
+    }
     /** 酷狗：普通版和概念版两个码并排 */
     private val dual: Boolean get() = provider == MusicSource.KUGOU
 
     fun open() {
         showing = true
         provider = MusicSources.selected
-        if (native) NativeLogin.start(provider) else NeteaseLogin.start()
+        when {
+            bili -> BiliLogin.start()
+            native -> NativeLogin.start(provider)
+            else -> NeteaseLogin.start()
+        }
     }
 
     fun close() {
         showing = false
-        if (native) NativeLogin.cancel() else NeteaseLogin.cancel()
+        when {
+            bili -> BiliLogin.cancel()
+            native -> NativeLogin.cancel()
+            else -> NeteaseLogin.cancel()
+        }
     }
 
     /** 新二维码生成后传成贴图（每帧调用，没变化就什么都不做） */
     fun uploadQr() {
         val img = image ?: return
-        val version = if (native) NativeLogin.qrVersion else NeteaseLogin.qrVersion
+        val version = when {
+            bili -> BiliLogin.qrVersion
+            native -> NativeLogin.qrVersion
+            else -> NeteaseLogin.qrVersion
+        }
         if (version == qrUploaded && uploadedProvider == provider) return
         val textures = DangoClient.gfx.textures
         qrLoc?.let { textures.delete(it) }
@@ -77,7 +99,7 @@ internal class LoginDialog(private val screen: MusicScreen) {
         val state = this.state
         if (state == NeteaseLogin.State.SUCCESS) {
             showing = false
-            if (native) NativeLogin.cancel() else NeteaseLogin.cancel()
+            close()
             Library.refreshAll()
             return
         }
@@ -92,7 +114,7 @@ internal class LoginDialog(private val screen: MusicScreen) {
         val box = LayoutBounds((ui.lw - w) / 2f, (ui.lh - h) / 2f, w, h)
         ctx.drawGlass(box, Theme.GLASS_WINDOW)
 
-        val title = if (native) I18n.text("Log in") + " · " + I18n.text(provider.label) else I18n.text("Log in to NetEase")
+        val title = if (native || bili) I18n.text("Log in") + " · " + I18n.text(provider.label) else I18n.text("Log in to NetEase")
         ui.text(title, box.x + 20f, box.y + 20f, 18f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
         val closeB = LayoutBounds(box.right - 38f, box.y + 14f, 24f, 24f)
         ctx.drawShape(closeB, ShapeStyle(if (ui.hover(closeB)) Theme.CARD_HOVER else Theme.CARD, 12f))
@@ -120,6 +142,7 @@ internal class LoginDialog(private val screen: MusicScreen) {
             NeteaseLogin.State.WAITING -> I18n.text(when (provider) {
                 MusicSource.QQ -> "Scan with the QQ Music app"
                 MusicSource.KUGOU -> "Scan with the Kugou Music app"
+                MusicSource.BILIBILI -> "Scan with the Bilibili app"
                 else -> "打开手机网易云音乐 App 扫码"
             })
             NeteaseLogin.State.SCANNED -> if (native && NativeLogin.message.isNotEmpty()) I18n.text(NativeLogin.message)
@@ -133,7 +156,11 @@ internal class LoginDialog(private val screen: MusicScreen) {
             NeteaseLogin.State.ERROR, NeteaseLogin.State.EXPIRED -> RED
             else -> Theme.TEXT_PRIMARY
         }
-        val detail = if (native && state == NeteaseLogin.State.ERROR && NativeLogin.message.isNotEmpty()) I18n.text(NativeLogin.message) else msg
+        val detail = when {
+            bili && state == NeteaseLogin.State.ERROR && BiliLogin.message.isNotEmpty() -> I18n.text(BiliLogin.message)
+            native && state == NeteaseLogin.State.ERROR && NativeLogin.message.isNotEmpty() -> I18n.text(NativeLogin.message)
+            else -> msg
+        }
         val lines = ui.wrap2(detail, w - 24f, 12f)
         lines.forEachIndexed { index, shown ->
             ui.text(shown, box.x + (w - ui.width(shown, 12f)) / 2f, qrBox.bottom + (if (lines.size > 1) 18f else 24f) + index * 14f, 12f, msgColor)
@@ -145,7 +172,7 @@ internal class LoginDialog(private val screen: MusicScreen) {
             val b = LayoutBounds(box.x + (w - bw) / 2f, qrBox.bottom + 48f, bw, 28f)
             ctx.drawShape(b, ShapeStyle(RED, 14f))
             ui.text(label, b.x + 14f, b.y + 9f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
-            hits += b to { if (native) NativeLogin.start(provider) else NeteaseLogin.start() }
+            hits += b to { if (bili) BiliLogin.start() else if (native) NativeLogin.start(provider) else NeteaseLogin.start() }
         }
     }
 

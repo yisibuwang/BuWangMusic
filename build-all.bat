@@ -37,6 +37,9 @@ if errorlevel 1 (
 popd
 for /d %%d in (modern26\versions\*) do xcopy /y /q "%%d\build\libs\BuWangMusic-%VER%+*.jar" dist\ >nul
 
+rem 重算校验和，格式与 sha256sum 一致：<hash> *<文件名>
+powershell -NoProfile -Command "Get-ChildItem dist\*.jar | Sort-Object Name | ForEach-Object { $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); '{0} *{1}' -f $h, $_.Name } | Set-Content -Encoding ascii dist\SHA256SUMS.txt"
+
 echo.
 echo Done. Jars in dist\:
 dir /b dist

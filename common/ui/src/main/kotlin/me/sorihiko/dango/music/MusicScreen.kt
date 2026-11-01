@@ -7,11 +7,13 @@ import me.sorihiko.dango.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dango.musicui.GridPage
 import me.sorihiko.dango.musicui.Library
 import me.sorihiko.dango.music.LocalLibrary
+import me.sorihiko.dango.musicui.BiliPage
 import me.sorihiko.dango.musicui.LocalPage
 import me.sorihiko.dango.musicui.LoginDialog
 import me.sorihiko.dango.musicui.Page
 import me.sorihiko.dango.musicui.PartyPage
 import me.sorihiko.dango.musicui.PlayerBar
+import me.sorihiko.dango.musicui.PartsSheet
 import me.sorihiko.dango.musicui.QueueSheet
 import me.sorihiko.dango.musicui.RED
 import me.sorihiko.dango.musicui.ScreenState
@@ -54,6 +56,7 @@ class MusicScreen(
     private val grid = GridPage(this)
     private val party = PartyPage(this)
     private val local = LocalPage(this)
+    private val bili = BiliPage(this)
     private val settings = SettingsPage(this, module)
 
     /** 播放栏右侧弹出的播放列表 */
@@ -61,6 +64,7 @@ class MusicScreen(
 
     /** 浮在窗口底部的提示条（添加成功 / 权限不够 / 需要会员……） */
     internal val toasts = Toasts()
+    internal val partsSheet = PartsSheet(this)
 
     /** 有输入框在打字（搜索、筛选、房间码、设置里改数值 / 颜色）：平台层据此让系统输入法可用 */
     val textInputActive: Boolean
@@ -117,7 +121,11 @@ class MusicScreen(
         ScreenState.lastQuery = ""
         ScreenState.opened = null
         Library.ensureSource()
-        go(if (source == MusicSource.LOCAL) Page.LOCAL else Page.HOME)
+        go(when (source) {
+            MusicSource.LOCAL -> Page.LOCAL
+            MusicSource.BILIBILI -> Page.BILI
+            else -> Page.HOME
+        })
     }
 
     /** 本地音乐当前按哪个文件夹筛选（侧栏用来高亮） */
@@ -150,6 +158,7 @@ class MusicScreen(
             Page.HOME -> Library.loadRecommend()
             Page.CHARTS -> Library.loadCharts()
             Page.LOCAL -> LocalLibrary.load()
+            Page.BILI -> Library.reloadPlaylists()
             Page.QUEUE -> if (ScreenState.coverView) tracks.focusCurrentInCoverflow()
             else -> {}
         }
@@ -312,6 +321,7 @@ class MusicScreen(
         // 否则首页/排行榜这类大图页面的文字会浮在播放列表面板、提示条上面。
         ui.mt.flush(ui.scale)
         queueSheet.draw(win, barRect)
+        partsSheet.draw(win, barRect)
         toasts.draw(ui, LayoutBounds(win.x, win.y, win.width, barRect.y - win.y - 6f))
     }
 
@@ -324,6 +334,7 @@ class MusicScreen(
         grid.area = LayoutBounds()
         tracks.area = LayoutBounds()
         local.area = LayoutBounds()
+        bili.area = LayoutBounds()
         settings.area = LayoutBounds()
 
         val s = ScreenState
@@ -349,6 +360,7 @@ class MusicScreen(
             }
             Page.PARTY -> ui.itemAnim(0) { party.draw(body) }
             Page.LOCAL -> ui.itemAnim(0) { local.draw(body) }
+            Page.BILI -> ui.itemAnim(0) { bili.draw(body) }
             Page.SETTINGS -> settings.draw(body)
             else -> tracks.draw(body)
         }
@@ -382,6 +394,7 @@ class MusicScreen(
             return
         }
         if (mouseButton != 0) return
+        if (partsSheet.mouseDown(mx, my)) return
         if (queueSheet.mouseDown(mx, my)) return
         if (bar.mouseDown(mx, my)) return
         if (tracks.scrollbarDown(mx, my)) return
@@ -415,6 +428,7 @@ class MusicScreen(
     fun scroll(wheel: Int, x: Int, y: Int) {
         if (closingAt != 0L || closed) return
         if (wheel == 0 || login.visible) return
+        if (partsSheet.scroll(if (wheel > 0) -1 else 1)) return
         if (queueSheet.scroll(if (wheel > 0) -1 else 1)) return
         val lx = (x / ui.scale).toInt()
         val ly = (y / ui.scale).toInt()
@@ -426,6 +440,7 @@ class MusicScreen(
             grid.area.contains(lx, ly) -> grid.scroll(wheel)
             tracks.area.contains(lx, ly) -> tracks.scroll(wheel, step)
             local.area.contains(lx, ly) -> local.scrollBy(step)
+            bili.area.contains(lx, ly) -> bili.scrollBy(step.toFloat())
         }
     }
 
@@ -442,6 +457,7 @@ class MusicScreen(
             return
         }
         // 播放列表面板开着时 Esc 先关面板
+        if (partsSheet.keyEsc()) return
         if (queueSheet.open && keyCode == Keys.ESCAPE) {
             queueSheet.close()
             return

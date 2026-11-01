@@ -28,10 +28,19 @@ object TogetherConfig {
     var maxBitrate: Int = 0
         private set
 
+    /** 允许房间里放 B 站曲目（每个客户端自己取流，服务端只同步标题与进度） */
+    @Volatile
+    var allowBilibili: Boolean = true
+        private set
+
     private const val FILE_NAME = "dangomusic-server.properties"
 
     private const val DEFAULTS = """# BuWang Music 服务端配置
 # 改完重启服务器生效。
+
+# 是否允许房间里放 B 站曲目。关掉后粘贴 B 站歌单、点 B 站歌都会被拒绝，
+# 已经在队列里的 B 站歌也不会再同步进度。每个客户端自己取流，服务端不转发音频。
+allow-bilibili=true
 
 # 是否允许房主把本地音乐的声音转发给房间里没有这个文件的成员。
 # 关掉后一起听歌只能用各音乐平台的歌；本地歌在别人那里会显示为无法播放。
@@ -45,6 +54,7 @@ max-bitrate=0
     fun reset() {
         allowLocalMusic = true
         maxBitrate = 0
+        allowBilibili = true
     }
 
     /** 服务器启动/房间第一次被访问时读一次 */
@@ -59,9 +69,11 @@ max-bitrate=0
             file.reader(Charsets.UTF_8).use { properties.load(it) }
             allowLocalMusic = properties.getProperty("allow-local-music")?.trim()?.toBooleanStrictOrNull() ?: true
             maxBitrate = (properties.getProperty("max-bitrate")?.trim()?.toIntOrNull() ?: 0).coerceAtLeast(0)
+            allowBilibili = properties.getProperty("allow-bilibili")?.trim()?.toBooleanStrictOrNull() ?: true
             DangoLogger.info(
-                "Listen Together server config: local music {}, max bitrate {}",
+                "Listen Together server config: local music {}, bilibili {}, max bitrate {}",
                 if (allowLocalMusic) "on" else "off",
+                if (allowBilibili) "on" else "off",
                 if (maxBitrate == 0) "unlimited" else "$maxBitrate kbps",
             )
         } catch (e: Exception) {

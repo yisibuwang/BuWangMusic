@@ -460,7 +460,12 @@ object NeteaseApi {
                 conn.readTimeout = 15000
                 conn.setRequestProperty("User-Agent", UA)
                 conn.setRequestProperty("Accept", accept)
-                if (URL(current).host.endsWith("music.163.com")) {
+                val host = URL(current).host
+                if (host.endsWith("hdslb.com") || host.endsWith("biliimg.com")) {
+                    // B 站图片有防盗链，没有 Referer 会返回 403
+                    conn.setRequestProperty("Referer", "https://www.bilibili.com/")
+                }
+                if (host.endsWith("music.163.com")) {
                     conn.setRequestProperty("Referer", "https://music.163.com/")
                     val c = cookie()
                     conn.setRequestProperty("Cookie", if (c.isEmpty()) "os=pc; appver=2.10.13" else "$c; os=pc; appver=2.10.13")

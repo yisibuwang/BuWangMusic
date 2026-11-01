@@ -7,11 +7,17 @@ import java.security.MessageDigest
 
 /** Persistent provider names; never use a process-local counter as a song identifier. */
 enum class MusicSource(val key: String, val label: String) {
-    NETEASE("netease", "NetEase"), QQ("qq", "QQ Music"), KUGOU("kugou", "Kugou"), LOCAL("local", "Local");
+    NETEASE("netease", "NetEase"), QQ("qq", "QQ Music"), KUGOU("kugou", "Kugou"), LOCAL("local", "Local"), BILIBILI("bilibili", "Bilibili");
 }
 
 /** Only locally-authored public messages belong here; never include a token or request URL. */
 class SourceAccessException(message: String) : IllegalStateException(message)
+
+/** 搜索有分页的音源实现这个，界面滚动到底时会要下一页；没有实现的音源只给一页。 */
+interface PagedSearch {
+    val pageSize: Int get() = 20
+    fun searchPage(query: String, page: Int): List<NeteaseTrack>
+}
 
 interface MusicSourceApi {
     val source: MusicSource
@@ -57,6 +63,7 @@ object MusicSources {
         MusicSource.QQ -> QqMusicSource
         MusicSource.KUGOU -> KugouMusicSource
         MusicSource.LOCAL -> LocalMusicSource
+        MusicSource.BILIBILI -> BiliSource
     }
 
     /** Compatibility ID for existing numeric UI fields. Identity is always [NeteaseTrack.key]. */

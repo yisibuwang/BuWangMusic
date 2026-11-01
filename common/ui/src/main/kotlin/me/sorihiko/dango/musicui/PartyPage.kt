@@ -306,6 +306,10 @@ internal class PartyPage(private val screen: MusicScreen) {
                 )
                 y += 20f
             }
+            if (!ListenParty.allowBili) {
+                ui.text(I18n.text("Bilibili tracks are off on this server"), x, y, 10f, RED, Theme.FONT_SEMIBOLD)
+                y += 16f
+            }
         }
 
         // 按钮

@@ -10,6 +10,7 @@ import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.MusicSources
 import me.sorihiko.dango.music.NeteaseApi
 import me.sorihiko.dango.music.NeteaseTrack
+import me.sorihiko.dango.music.bili.BiliParts
 import me.sorihiko.dango.platform.Keys
 import me.sorihiko.dango.ui.LayoutBounds
 import me.sorihiko.dango.ui.ShapeStyle
@@ -90,7 +91,17 @@ internal class TracksPage(private val screen: MusicScreen) {
     }
 
     fun scroll(wheel: Int, rows: Int) {
-        if (ScreenState.coverView) cfTarget += if (wheel > 0) -1 else 1 else scroll += rows
+        if (ScreenState.coverView) {
+            cfTarget += if (wheel > 0) -1 else 1
+            return
+        }
+        scroll += rows
+        // 搜索页滚到底就自动接下一页，不用再点按钮
+        if (ScreenState.page == Page.SEARCH && wheel > 0 && Library.searchHasMore && !Library.searchMoreLoading) {
+            val count = Library.searchResults?.size ?: 0
+            val last = max(0, count - max(1, listRows))
+            if (scroll >= last && count > 0) Library.searchMore()
+        }
     }
 
     // ---------------------------------------------------------------- 数据
@@ -336,6 +347,7 @@ internal class TracksPage(private val screen: MusicScreen) {
 
         // 歌单内筛选框（按歌名 / 歌手，输入即筛选）
         if (tracks != null && state.page != Page.SEARCH) drawFilter(rightX, y) else filterRect = LayoutBounds()
+
         return headerH
     }
 
@@ -448,6 +460,8 @@ internal class TracksPage(private val screen: MusicScreen) {
         val first = kotlin.math.floor(listPos).toInt()
         val frac = listPos - first
         val clipArea = LayoutBounds(body.x - 4f, body.y - 2f, body.width + 8f, rows * rowH)
+        // 合集里的一行可能对应一个多分P视频：点击展开抽屉，其它情况保持直接播放
+        val expandable = MusicSources.selected == MusicSource.BILIBILI && ScreenState.page == Page.PLAYLIST
         ui.beginClip(clipArea)
         for (r in 0..rows) {
             val vi = first + r
@@ -481,10 +495,29 @@ internal class TracksPage(private val screen: MusicScreen) {
                 ui.text(ui.trim(sub, avail, 11f), tx, row.y + 23f, 11f, Theme.TEXT_SECONDARY)
                 val d = fmtTime(t.durationMs)
                 ui.text(d, row.right - 12f - ui.width(d, 11f), row.y + 15f, 11f, Theme.TEXT_TERTIARY)
-                ui.hits += row.intersect(clipArea) to { playFrom(all, i) }
+                if (expandable && t.source == MusicSource.BILIBILI && !t.nativeId.contains(':')) {
+                    val parts = BiliParts.peek(t.nativeId)
+                    if (parts == null) BiliParts.request(t.nativeId)
+                    if (parts != null && parts.isNotEmpty()) {
+                        ui.text("▸", row.right - 66f, row.y + 14f, 12f, Theme.TEXT_SECONDARY)
+                    }
+                    ui.hits += row.intersect(clipArea) to { screen.partsSheet.pick(all, i) }
+                } else {
+                    ui.hits += row.intersect(clipArea) to { playFrom(all, i) }
+                }
             }
         }
         ui.endClip()
+        // 搜索还有下一页：列表底部给一行按钮，滚到底也会自动接上
+        if (ScreenState.page == Page.SEARCH && (Library.searchHasMore || Library.searchMoreLoading)) {
+            val label = if (Library.searchMoreLoading) I18n.text("Loading...") else I18n.text("More results")
+            val w = ui.width(label, 11f, Theme.FONT_MEDIUM) + 54f
+            val mb = LayoutBounds(body.x + (body.width - w) / 2f, body.bottom - 32f, w, 26f)
+            ui.card(mb, if (ui.hover(mb)) Theme.CARD_HOVER else Theme.CARD, 13f)
+            ui.icon(if (Library.searchMoreLoading) "…" else "↓", mb.x + 16f, mb.y + 13f, 11f, RED)
+            ui.text(label, mb.x + 28f, mb.y + 8f, 11f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
+            if (!Library.searchMoreLoading) ui.hits += mb to { Library.searchMore() }
+        }
     }
 
     // ---------------------------------------------------------------- 封面墙（Coverflow）

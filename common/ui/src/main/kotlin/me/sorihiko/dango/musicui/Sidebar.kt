@@ -7,6 +7,9 @@ import me.sorihiko.dango.music.CoverCache
 import me.sorihiko.dango.music.LocalLibrary
 import me.sorihiko.dango.music.MusicScreen
 import me.sorihiko.dango.music.NeteaseApi
+import me.sorihiko.dango.music.bili.BiliApi
+import me.sorihiko.dango.music.BiliSource
+import me.sorihiko.dango.music.bili.BiliImports
 import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.MusicSources
 import me.sorihiko.dango.music.NativeAccounts
@@ -176,14 +179,17 @@ internal class Sidebar(private val screen: MusicScreen) {
         }
 
         val localMode = MusicSources.selected == MusicSource.LOCAL
-        section(if (localMode) I18n.text("LOCAL MUSIC") else I18n.text("BUWANG MUSIC"))
+        val biliMode = MusicSources.selected == MusicSource.BILIBILI
+        section(if (localMode) I18n.text("LOCAL MUSIC") else if (biliMode) I18n.text("BILIBILI") else I18n.text("BUWANG MUSIC"))
         if (localMode) {
             nav("⌂", I18n.text("Local music"), page == Page.LOCAL, true) { screen.showLocalAll() }
+        } else if (biliMode) {
+            nav("⌂", I18n.text("Bilibili import"), page == Page.BILI, true) { screen.go(Page.BILI) }
         } else {
             nav("⌂", I18n.text("Home"), page == Page.HOME, true) { screen.go(Page.HOME) }
         }
         section(I18n.text("DISCOVER"))
-        if (!localMode) nav("▤", I18n.text("Charts"), page == Page.CHARTS, false) { screen.go(Page.CHARTS) }
+        if (!localMode && !biliMode) nav("▤", I18n.text("Charts"), page == Page.CHARTS, false) { screen.go(Page.CHARTS) }
         nav("♫", I18n.text("Now Playing"), page == Page.QUEUE, false) { screen.go(Page.QUEUE) }
         nav("♬", if (ListenParty.role == ListenParty.Role.NONE) I18n.text("Listen Together") else I18n.text("Listen Together · ") + ListenParty.members.size,
             page == Page.PARTY, ListenParty.role != ListenParty.Role.NONE) { screen.go(Page.PARTY) }
@@ -262,8 +268,18 @@ internal class Sidebar(private val screen: MusicScreen) {
             } else if (ui.hover(row)) {
                 ui.card(row, Theme.CARD_HOVER, 9f)
             }
-            val liked = i == firstOwned   // 第一个自己的歌单就是"我喜欢的音乐"
+            val liked = i == firstOwned && MusicSources.selected == MusicSource.NETEASE
+            val imported = MusicSources.selected == MusicSource.BILIBILI && BiliSource.importedKey(p.id) != null
             ui.icon(if (liked) "♥" else "≡", row.x + 18f, row.y + 14f, 12f, if (liked || active) RED else Theme.TEXT_SECONDARY)
+            if (imported && ui.hover(row)) {
+                val del = LayoutBounds(row.right - 24f, row.y + (row.height - 18f) / 2f, 18f, 18f)
+                val gw = ui.width("×", 12f)
+                ui.text("×", del.x + (del.width - gw) / 2f, del.y + (del.height - 12f) / 2f + 1f, 12f, Theme.TEXT_TERTIARY)
+                ui.hits += del to {
+                    BiliSource.importedKey(p.id)?.let { BiliImports.remove(it) }
+                    Library.reloadPlaylists()
+                }
+            }
             val c = if (active) Theme.TEXT_PRIMARY else if (p.owned) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY
             ui.text(ui.trim(p.name, row.right - 8f - (row.x + 34f), 12f), row.x + 34f, row.y + 9f, 12f, c)
             ui.hits += row.intersect(listShown) to { screen.openPlaylist(p, null) }
@@ -316,8 +332,11 @@ internal class Sidebar(private val screen: MusicScreen) {
     private fun mix(a: Color, b: Color, t: Float) =
         Color(lerp(a.r, b.r, t), lerp(a.g, b.g, t), lerp(a.b, b.b, t), lerp(a.a, b.a, t))
 
-    private fun loggedIn(source: MusicSource): Boolean =
-        if (source == MusicSource.NETEASE) NeteaseApi.loggedIn else NativeAccounts.get(source) != null
+    private fun loggedIn(source: MusicSource): Boolean = when (source) {
+        MusicSource.NETEASE -> NeteaseApi.loggedIn
+        MusicSource.BILIBILI -> BiliApi.loggedIn()
+        else -> NativeAccounts.get(source) != null
+    }
 
     /** 账号栏：头像 + 昵称（没登录时是"登录 xx"），右边是当前音源，点开菜单切换音源 / 退出登录 */
     private fun drawAccount(side: LayoutBounds) {
@@ -327,8 +346,8 @@ internal class Sidebar(private val screen: MusicScreen) {
         val native = source != MusicSource.NETEASE
         val account = if (native) NativeAccounts.get(source) else null
 
-        // 本地音源没有账号：只留"本地音乐 + 音源按钮"，不再出现登录入口
-        if (source == MusicSource.LOCAL) {
+        // 本地音源没有账号体系；B 站有扫码登录，但账号名不显示，未登录时这块位置放一个"登录"
+        if (source == MusicSource.LOCAL || source == MusicSource.BILIBILI) {
             val label = I18n.text(source.label)
             val w = ui.width(label, 10f, Theme.FONT_MEDIUM) + 26f
             val chip = LayoutBounds(ub.right - w - 6f, ub.y + 9f, w, 22f)
@@ -338,9 +357,20 @@ internal class Sidebar(private val screen: MusicScreen) {
             chipRect = chip
             menuRects += chip
             ui.hits += chip to { menuOpen = !menuOpen }
+
             ui.ctx.drawShape(av, ShapeStyle(Theme.TRACK, 14f))
             ui.icon("♫", av.x + 14f, av.y + 14f, 12f, RED)
-            ui.text(label, av.right + 10f, ub.y + 14f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+            val textX = av.right + 10f
+            val textW = (chip.x - 8f - textX).coerceAtLeast(0f)
+            if (source == MusicSource.BILIBILI && !BiliApi.loggedIn()) {
+                val login = I18n.text("Log in")
+                val lb = LayoutBounds(av.right + 2f, ub.y + 4f, textW + 8f, 32f)
+                if (ui.hover(lb)) ui.card(lb, Theme.CARD_HOVER, 10f)
+                ui.text(login, textX, ub.y + 14f, 12f, RED, Theme.FONT_SEMIBOLD)
+                ui.hits += lb to { screen.login.open() }
+            } else {
+                ui.text(ui.trim(label, textW, 12f, Theme.FONT_SEMIBOLD), textX, ub.y + 14f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+            }
             return
         }
 
@@ -482,7 +512,11 @@ internal class Sidebar(private val screen: MusicScreen) {
                 hits += row0 to {
                     menuOpen = false
                     try {
-                        if (current == MusicSource.NETEASE) NeteaseApi.logout() else NativeAccounts.logout(current)
+                        when (current) {
+                            MusicSource.NETEASE -> NeteaseApi.logout()
+                            MusicSource.BILIBILI -> BiliApi.logout()
+                            else -> NativeAccounts.logout(current)
+                        }
                         Library.refreshAll()
                     } catch (_: Exception) { Library.showStatus("Unable to clear the saved login. Please try again.") }
                 }

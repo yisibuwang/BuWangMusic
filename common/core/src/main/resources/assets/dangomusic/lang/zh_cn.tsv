@@ -412,3 +412,25 @@ Local audio sharing is off on this server	服务器没有开启本地音乐共�
 Original	原始码率
 %d listeners · about %d KB/s upload	%d 人收听 · 约 %d KB/s 上传
 Members without the file hear it through the server; original quality uses the most bandwidth.	没有这个文件的成员通过服务器收听；原始码率最占带宽。
+Bilibili	B 站
+BILIBILI	B 站
+Bilibili import	B 站导入
+Paste link	粘贴链接
+Imported %d songs	已导入 %d 首
+%d songs · imported	%d 首 · 已导入
+Copy a video, collection or favorite folder link, then press Paste link.	复制视频、合集或收藏夹链接，然后点「粘贴链接」。
+My favorites	我的收藏
+Imported songs	已导入的歌曲
+Refreshing favorites	正在刷新收藏
+The clipboard is empty	剪贴板是空的
+Not a Bilibili video, collection or favorite link	不是 B 站视频、合集或收藏夹的链接
+Import failed	导入失败
+Reading the link…	正在读取链接…
+No favorites yet	还没有收藏
+Log in to see your favorites and private collections.	登录后才能看收藏和私密合集。
+Scan with the Bilibili app	用 B 站手机客户端扫码
+More results	加载更多
+Reading the link	正在读取链接
+Parts · %d	分P · %d
+Reading parts…	正在读取分P…
+Bilibili tracks are off on this server	服务器没有开启 B 站音源共享
