@@ -475,7 +475,10 @@ internal class TracksPage(private val screen: MusicScreen) {
                 val durW = 44f
                 val avail = row.right - durW - 12f - tx
                 ui.text(ui.trim(t.name, avail, 13f), tx, row.y + 7f, 13f, if (isCur) RED else Theme.TEXT_PRIMARY)
-                ui.text(ui.trim(t.artists.joinToString(" / "), avail, 11f), tx, row.y + 23f, 11f, Theme.TEXT_SECONDARY)
+                val sub = if (t.source == me.sorihiko.dango.music.MusicSource.LOCAL)
+                    t.artists.joinToString(" / ") + " · " + I18n.text("Local file")
+                else t.artists.joinToString(" / ")
+                ui.text(ui.trim(sub, avail, 11f), tx, row.y + 23f, 11f, Theme.TEXT_SECONDARY)
                 val d = fmtTime(t.durationMs)
                 ui.text(d, row.right - 12f - ui.width(d, 11f), row.y + 15f, 11f, Theme.TEXT_TERTIARY)
                 ui.hits += row.intersect(clipArea) to { playFrom(all, i) }

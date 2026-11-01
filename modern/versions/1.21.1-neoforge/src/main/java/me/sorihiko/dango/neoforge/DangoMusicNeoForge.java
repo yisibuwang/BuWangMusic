@@ -30,6 +30,9 @@ public class DangoMusicNeoForge {
 
     public DangoMusicNeoForge(IEventBus modBus) {
         modBus.addListener((RegisterPayloadHandlersEvent event) -> TogetherChannel.INSTANCE.register(event));
+        // 服务端启动就把配置读出来（顺便生成默认配置文件）
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStartedEvent event) ->
+                me.sorihiko.dango.together.TogetherServer.INSTANCE.ensureConfigured(event.getServer()));
         if (FMLEnvironment.dist == Dist.CLIENT) Client.init(modBus);
     }
 

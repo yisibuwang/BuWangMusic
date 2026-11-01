@@ -36,6 +36,8 @@ object TogetherServer {
     private const val MAX_MEMBERS = 32
     /** 一个房间的播放列表最多多少首 */
     private const val MAX_QUEUE = TogetherProtocol.MAX_QUEUE
+    /** 中转缓冲：最近几片，晚进来的人靠它追上当前进度 */
+    private const val RELAY_BUFFER = 24
     private const val CODE_LEN = 5
     private const val CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -52,6 +54,12 @@ object TogetherServer {
         var playing: Boolean = false
         /** 上报进度的服务端时间 */
         var stamp: Long = 0L
+        /** 房主选的中转码率（kbps），0 = 原始码率不转码 */
+        var quality: Int = 0
+        /** 正在听中转的人 */
+        val relayMembers = LinkedHashSet<UUID>()
+        /** 最近的中转分片（序号 + 歌曲标识 + base64） */
+        val relayBuffer = ArrayDeque<Pair<String, String>>()
 
         val track: NeteaseTrack? get() = queue.getOrNull(current)
 
@@ -70,6 +78,9 @@ object TogetherServer {
             positionMs = position(now),
             playing = playing,
             track = track,
+            quality = quality,
+            maxKbps = TogetherConfig.maxBitrate,
+            allowLocal = TogetherConfig.allowLocalMusic,
         )
     }
 
@@ -84,8 +95,17 @@ object TogetherServer {
 
     @Volatile
     private var sender: ((ServerPlayer, String) -> Unit)? = null
+    /** 服务端配置只在第一次用到时读一次（读取需要 MinecraftServer） */
+    private var configured = false
 
     /** 加载器注入"把一条 JSON 发给某个玩家"的实现 */
+    /** 服务器启动时就把配置读出来（没进房间时也会生成配置文件） */
+    fun ensureConfigured(server: MinecraftServer) {
+        if (configured) return
+        configured = true
+        TogetherConfig.load(server)
+    }
+
     fun install(send: (ServerPlayer, String) -> Unit) {
         sender = send
     }
@@ -96,6 +116,8 @@ object TogetherServer {
         roomOf.clear()
         addBatches.clear()
         versionWarned.clear()
+        configured = false
+        TogetherConfig.reset()
     }
 
     /** 玩家断线：从房间里移除（房主断线 = 房间结束） */
@@ -107,6 +129,9 @@ object TogetherServer {
 
     fun handle(player: ServerPlayer, raw: String) {
         if (raw.length > TogetherProtocol.MAX_BYTES) return
+        if (!configured) {
+            ensureConfigured(player.level().getServer()!!)
+        }
         val message = TogetherProtocol.parse(raw) ?: return
         if (message.num("v").toInt() != TogetherProtocol.VERSION) {
             if (versionWarned.add(player.uuid)) error(player, "版本不一致：服务器和客户端需要同一个版本的 DangoMusic")
@@ -125,6 +150,9 @@ object TogetherServer {
             TogetherProtocol.PREV -> step(player, -1)
             TogetherProtocol.INTENT -> intent(player, message)
             TogetherProtocol.SET_PERMS -> setPerms(player, message)
+            TogetherProtocol.SET_QUALITY -> setQuality(player, message)
+            TogetherProtocol.RELAY_REQ -> relayRequest(player, message)
+            TogetherProtocol.RELAY_DATA -> relayData(player, message)
             TogetherProtocol.HOST_STATE -> hostState(player, message)
             TogetherProtocol.ENDED -> ended(player)
             TogetherProtocol.RESYNC -> room(player)?.let { sendRoom(player, it) }
@@ -182,6 +210,7 @@ object TogetherServer {
         val wasHost = room.host == player.uuid
         addBatches.remove(player.uuid)
         room.members.remove(player.uuid)
+        room.relayMembers.remove(player.uuid)
         if (wasHost) {
             closeRoom(player.level().getServer()!!, room, "房主离开了一起听歌")
         } else {
@@ -501,6 +530,72 @@ object TogetherServer {
         val array = message.get("tracks") as? JsonArray ?: return emptyList()
         return array.mapNotNull { element ->
             (element as? JsonObject)?.let { PartyTrackCodec.read(it) }
+        }
+    }
+
+    // ---------------------------------------------------------------- 本地音乐中转
+
+    /** 房主选中转码率：0 = 原始码率，其它是 kbps；超过服务端上限时拒绝 */
+    private fun setQuality(player: ServerPlayer, message: JsonObject) {
+        val room = room(player) ?: return
+        if (room.host != player.uuid) { error(player, "只有房主能选中转码率"); return }
+        val wanted = message.num("q").toInt()
+        if (wanted !in TogetherProtocol.QUALITY_TIERS) { error(player, "没有这个码率挡位"); return }
+        if (wanted != 0 && TogetherConfig.maxBitrate > 0 && wanted > TogetherConfig.maxBitrate) {
+            error(player, "服务器限制中转码率不超过 ${TogetherConfig.maxBitrate} kbps")
+            return
+        }
+        val changed = room.quality != wanted
+        room.quality = wanted
+        val server = player.level().getServer()!!
+        // 换挡位等于换了一条编码流，成员手里的旧分片作废，等房主按新挡位重新发
+        if (changed) {
+            room.relayBuffer.clear()
+            broadcast(server, room, TogetherProtocol.message(TogetherProtocol.RELAY_STOP), null)
+        }
+        broadcast(server, room, TogetherProtocol.message(TogetherProtocol.RELAY_STATE) {
+            addProperty("on", TogetherConfig.allowLocalMusic)
+            addProperty("q", room.quality)
+        }, null)
+    }
+
+    /** 成员请求听中转：把已经缓存的几片先给他，剩下的等房主继续发 */
+    private fun relayRequest(player: ServerPlayer, message: JsonObject) {
+        val room = room(player) ?: return
+        if (!TogetherConfig.allowLocalMusic) { error(player, "服务器没有开启本地音乐共享"); return }
+        if (room.host == player.uuid) return
+        room.relayMembers += player.uuid
+        // 只补发当前这首歌的缓冲，别的歌的分片对他没用
+        val want = message.str("k")
+        for ((key, data) in room.relayBuffer.toList()) {
+            if (want.isNotEmpty() && key != want) continue
+            send(player, TogetherProtocol.message(TogetherProtocol.RELAY_DATA) {
+                addProperty("k", key)
+                addProperty("d", data)
+            })
+        }
+    }
+
+    /** 房主发来一片音频：缓存并转给正在听的人 */
+    private fun relayData(player: ServerPlayer, message: JsonObject) {
+        val room = room(player) ?: return
+        if (room.host != player.uuid) return
+        if (!TogetherConfig.allowLocalMusic) return
+        val key = message.str("k")
+        val data = message.str("d")
+        if (key.isEmpty() || data.isEmpty()) return
+        if (data.length > 28_000) return
+        // 换歌时旧缓冲作废，免得补发给新进来的成员的是上一首的声音
+        if (room.relayBuffer.isNotEmpty() && room.relayBuffer.last().first != key) room.relayBuffer.clear()
+        room.relayBuffer.addLast(key to data)
+        while (room.relayBuffer.size > RELAY_BUFFER) room.relayBuffer.removeFirst()
+        for (member in room.relayMembers) {
+            if (member == player.uuid) continue
+            val target = player.level().getServer()!!.playerList.getPlayer(member) ?: continue
+            send(target, TogetherProtocol.message(TogetherProtocol.RELAY_DATA) {
+                addProperty("k", key)
+                addProperty("d", data)
+            })
         }
     }
 

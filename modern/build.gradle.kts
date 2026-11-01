@@ -90,6 +90,7 @@ subprojects {
         "shade"(kotlin("stdlib"))
         "shade"("javazoom:jlayer:1.0.1")
         "shade"("com.google.zxing:core:3.3.3")
+        "shade"("de.sciss:jump3r:1.0.5")
     }
 
     tasks.named<ProcessResources>("processResources") {
@@ -114,6 +115,7 @@ subprojects {
         relocate("org.jetbrains.annotations", "me.sorihiko.dango.shadow.annotations.jetbrains")
         relocate("javazoom", "me.sorihiko.dango.shadow.javazoom")
         relocate("com.google.zxing", "me.sorihiko.dango.shadow.zxing")
+        relocate("de.sciss.jump3r", "me.sorihiko.dango.shadow.jump3r")
         exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module")
         // META-INF/versions 已经去掉了，就不能再声明 Multi-Release，
         // 否则 Forge 1.20.1 加载 jar 时找不到这个目录直接崩溃（Shadow 9 默认会加这一行）
@@ -123,6 +125,6 @@ subprojects {
     tasks.named<RemapJarTask>("remapJar") {
         inputFile.set(shadowJar.flatMap { it.archiveFile })
         archiveVersion.set("$modVersion+$mcVersion")
-        archiveClassifier.set(loader)                 // DangoMusic-1.1.0+1.21.1-neoforge.jar
+        archiveClassifier.set(loader)                 // BuWangMusic-1.1.0+1.21.1-neoforge.jar
     }
 }

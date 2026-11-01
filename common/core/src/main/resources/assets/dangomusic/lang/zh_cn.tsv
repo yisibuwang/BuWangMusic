@@ -236,7 +236,6 @@ QQ Music repeated a playlist page. Please retry.	QQ 音乐重复返回同一页�
 Please reopen the playlist and try again.	请重新打开歌单后重试。
 Log in to QQ Music to read your playlists.	请登录 QQ 音乐以读取你的歌单。
 This source is unavailable in this room. Create a new room with the updated mod.	此房间不支持该音源，请使用新版模组重新创建房间。
-This room requires a newer DangoMusic version.	此房间需要更新版本的 DangoMusic。
 Kugou listening parties are not available yet. Play a NetEase or QQ Music song first.	暂未支持酷狗一起听歌，请先播放网易云或 QQ 音乐歌曲。
 Everyone streams from their own music account. VIP and region permissions apply to each member.	每个人使用自己的音乐账号播放，会员和地区权限分别生效。
 QQ Music playback request failed. Please retry.	QQ 音乐播放请求失败，请重试。
@@ -342,7 +341,7 @@ You are the host · everyone can pick songs and control playback	你是房主，
 Following 	正在跟随 
  · you can pick songs and control playback too	，你也可以点歌和控制播放
  · only the host can control playback	，只有房主能控制播放
-This server does not have DangoMusic installed, or the version is different, so Listen Together is unavailable.	这个服务器没有安装 DangoMusic（或版本不同），一起听歌不可用
+This server does not have BuWang Music installed, or the version is different, so Listen Together is unavailable.	这个服务器没有安装 BuWang Music（或版本不同），一起听歌不可用
 Start listening together	开始一起听歌
 The server keeps the song and the position, so everyone joins in at the same place.	歌曲和进度都由服务器记着，谁后进来都从同一个位置开始
 LISTENING TOGETHER · 	一起听歌 · 
@@ -378,3 +377,38 @@ Pause & seek	暂停和拖进度
 Add songs	点歌
 Sync now	重新同步
 End room	结束房间
+Local music	本地音乐
+Local file	本地文件
+%d local files	%d 首本地音乐
+folders	个文件夹
+Refresh	刷新
+Scanning…	正在扫描…
+Scanning folders…	正在扫描文件夹…
+Paste a folder path, such as D:\Music	粘贴文件夹路径，例如 D:\Music
+Add folder	添加文件夹
+Added folder %s	已添加文件夹 %s
+All	全部
+By artist	按歌手
+By album	按专辑
+By folder	按文件夹
+Unknown	未知
+Add a folder of mp3 files to start listening offline.	先添加一个放 mp3 的文件夹，就能离线听歌了。
+No mp3 in this filter.	这个筛选下没有 mp3。
+Local	本地音乐
+LOCAL MUSIC	本地音乐
+FOLDERS	文件夹
+Open music folder	打开音乐文件夹
+Add folder path	添加文件夹路径
+Put mp3 files into this folder and they show up here automatically.	把 mp3 放进这个文件夹，这里会自动显示。
+Cannot open the folder	打不开这个文件夹
+No folders yet	还没有文件夹
+Choose folder…	选择文件夹…
+Pick a folder, or drop mp3 files into the music folder and they show up here automatically.	点左边选一个文件夹，或者把 mp3 放进音乐文件夹，这里会自动显示。
+This system has no folder picker — use Open music folder.	这个系统没有文件夹选择器，请用「打开音乐文件夹」。
+No mp3 in these folders yet. Drop files in, or pick another folder.	这些文件夹里还没有 mp3，把文件丢进去或换个文件夹试试。
+Show all	显示全部
+Share local audio quality	共享音质
+Local audio sharing is off on this server	服务器没有开启本地音乐共享
+Original	原始码率
+%d listeners · about %d KB/s upload	%d 人收听 · 约 %d KB/s 上传
+Members without the file hear it through the server; original quality uses the most bandwidth.	没有这个文件的成员通过服务器收听；原始码率最占带宽。

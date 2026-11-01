@@ -1,7 +1,9 @@
 package me.sorihiko.dango.musicui
 
 import me.sorihiko.dango.i18n.I18n
+import me.sorihiko.dango.music.LocalLibrary
 import me.sorihiko.dango.music.MusicScreen
+import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.party.ListenParty
 import me.sorihiko.dango.party.TogetherProtocol
 import me.sorihiko.dango.platform.Keys
@@ -84,7 +86,7 @@ internal class PartyPage(private val screen: MusicScreen) {
 
         if (ListenParty.unsupported) {
             val lines = ui.wrap2(
-                I18n.text("This server does not have DangoMusic installed, or the version is different, so Listen Together is unavailable."),
+                I18n.text("This server does not have BuWang Music installed, or the version is different, so Listen Together is unavailable."),
                 min(width, 560f), 12f, Theme.FONT_MEDIUM,
             )
             lines.forEachIndexed { i, line -> ui.text(line, x, y + i * 16f, 12f, RED, Theme.FONT_MEDIUM) }
@@ -266,6 +268,44 @@ internal class PartyPage(private val screen: MusicScreen) {
                 x + 380f, y, I18n.text("Add songs"), (perms and TogetherProtocol.PERM_ADD) != 0, "add",
             ) { ListenParty.setPerms(perms xor TogetherProtocol.PERM_ADD) }
             y += 26f
+
+            // 音频共享：服务端允许时才有意义；房主选码率挡位，按房间人数估算上传占用
+            val allowLocal = ListenParty.allowLocal
+            ui.text(
+                if (allowLocal) I18n.text("Share local audio quality") else I18n.text("Local audio sharing is off on this server"),
+                x, y, 10f,
+                if (allowLocal) Theme.TEXT_TERTIARY else RED,
+                Theme.FONT_SEMIBOLD,
+            )
+            y += 15f
+            if (allowLocal) {
+                var px = x
+                for (tier in TogetherProtocol.QUALITY_TIERS) {
+                    if (!ListenParty.qualityAllowed(tier)) continue
+                    val label = if (tier == 0) I18n.text("Original") else "$tier kbps"
+                    val selected = ListenParty.quality == tier
+                    val width = ui.width(label, 10f) + 22f
+                    val rect = LayoutBounds(px, y, width, 24f)
+                    ui.card(rect, if (selected) RED else Theme.CARD, 8f)
+                    ui.text(label, rect.x + 11f, rect.y + 7f, 10f, if (selected) Color(1f, 1f, 1f, 1f) else Theme.TEXT_SECONDARY)
+                    ui.hits += rect to { ListenParty.setQuality(tier) }
+                    px += width + 8f
+                }
+                y += 32f
+                val perListener = estimateUpload()
+                val count = ListenParty.members.size
+                val total = perListener * count.coerceAtLeast(1)
+                ui.text(
+                    String.format(I18n.text("%d listeners · about %d KB/s upload"), count, total),
+                    x, y, 10f, Theme.TEXT_SECONDARY,
+                )
+                y += 20f
+                ui.text(
+                    I18n.text("Members without the file hear it through the server; original quality uses the most bandwidth."),
+                    x, y, 10f, Theme.TEXT_TERTIARY,
+                )
+                y += 20f
+            }
         }
 
         // 按钮
@@ -277,6 +317,18 @@ internal class PartyPage(private val screen: MusicScreen) {
         y += 40f
 
         drawStatus(x, y, area)
+    }
+
+    /** 估算每个听众占的上行 KB/s：选了挡位按挡位算，原始码率按文件大小 / 时长的平均码率算 */
+    private fun estimateUpload(): Int {
+        if (ListenParty.quality > 0) return ListenParty.quality / 8
+        val track = ListenParty.queue.getOrNull(ListenParty.current) ?: return 24
+        if (track.source != MusicSource.LOCAL) return 24
+        val path = LocalLibrary.entry(track)?.path ?: return 24
+        val length = java.io.File(path).length()
+        val duration = track.durationMs.coerceAtLeast(1L)
+        if (length <= 0) return 24
+        return (length * 1000 / duration / 1024).toInt().coerceIn(4, 128)
     }
 
     private fun permission(x: Float, y: Float, label: String, on: Boolean, key: String, action: () -> Unit) {

@@ -5,7 +5,7 @@ import org.apache.logging.log4j.Logger
 
 class DangoLogger {
     companion object {
-        private val logger: Logger = LogManager.getLogger("DangoMusic")
+        private val logger: Logger = LogManager.getLogger("BuWangMusic")
 
         @JvmStatic
         fun info(msg: String, vararg params: Any) {

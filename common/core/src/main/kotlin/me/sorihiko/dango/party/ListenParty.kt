@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import me.sorihiko.dango.DangoLogger
 import me.sorihiko.dango.DangoMusic
 import me.sorihiko.dango.music.MusicPlayer
+import me.sorihiko.dango.music.LocalLibrary
 import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.NeteaseTrack
 import me.sorihiko.dango.notice.Notices
@@ -31,6 +32,11 @@ object ListenParty {
     private const val STATE_REFRESH_MS = 30_000L
     /** 客户端创建 / 加入房间后等服务端回应的最长时间 */
     private const val JOIN_TIMEOUT_MS = 4_000L
+    /** 中转播放时和房间进度差这么多就重新接流（房主拖动 / 换挡位都会触发） */
+    private const val RELAY_RESYNC_MS = 2_000L
+    /** 中转迟迟没出声时，隔这么久重新要一次分片 */
+    private const val RELAY_RETRY_MS = 8_000L
+    private const val RELAY_REQ_RETRY_MS = 4_000L
     /** 加载失败后多久自动重试一次 */
     private const val RETRY_MS = 5_000L
     /** 房间列表自动刷新间隔 */
@@ -79,6 +85,16 @@ object ListenParty {
     @Volatile var unsupported = false
         private set
 
+    /** 房主选的中转码率（kbps），0 = 原始码率 */
+    @Volatile var quality = 0
+        private set
+    /** 服务端允许的最高码率（kbps），0 = 不限制 */
+    @Volatile var maxKbps = 0
+        private set
+    /** 服务端是否允许共享本地音乐 */
+    @Volatile var allowLocal = false
+        private set
+
     val uid: String get() = myUid
     val inRoom: Boolean get() = role != Role.NONE
     val isHost: Boolean get() = role == Role.HOST
@@ -119,6 +135,10 @@ object ListenParty {
     private var queueChunkCurrent = -1
     // 已经提示过"这首放不了"的歌，避免每帧刷提示
     @Volatile private var failureNoticeKey = ""
+    /** 中转起播的时刻；一直没进入播放状态就重试 */
+    private var relayStartedAt = 0L
+    private var relayRetryAt = 0L
+    private var relayRequestAt = 0L
     // 房间内一首歌自然放完
     @Volatile private var endedFlag = false
     // 创建 / 加入的超时起点
@@ -133,8 +153,12 @@ object ListenParty {
                         Role.HOST -> {
                             followTick()
                             hostTick()
+                            relayHostTick()
                         }
-                        Role.MEMBER -> followTick()
+                        Role.MEMBER -> {
+                            followTick()
+                            relayMemberTick()
+                        }
                         Role.NONE -> {}
                     }
                     val now = System.currentTimeMillis()
@@ -305,6 +329,10 @@ object ListenParty {
         synchronized(pendingAdds) { pendingAdds.clear() }
         synchronized(pendingNames) { pendingNames.clear() }
         MusicPlayer.followMode = false
+        TogetherRelay.reset()
+        relayStartedAt = 0L
+        relayRetryAt = 0L
+        relayRequestAt = 0L
         if (wasInRoom && status.contains("自动重试")) status = ""
     }
 
@@ -524,6 +552,13 @@ object ListenParty {
                     Notices.post("${it.name} 离开了一起听歌", Notices.INFO)
                 }
             }
+            TogetherProtocol.RELAY_STATE -> {
+                allowLocal = message.flag("on")
+                quality = message.num("q").toInt()
+                TogetherRelay.setEnabled(allowLocal, quality)
+            }
+            TogetherProtocol.RELAY_DATA -> TogetherRelay.onData(message.str("k"), message.str("d"))
+            TogetherProtocol.RELAY_STOP -> TogetherRelay.onStop()
             TogetherProtocol.COMMAND -> if (role == Role.HOST) runCommand(message)
             TogetherProtocol.CLOSED -> {
                 val text = message.str("message").ifEmpty { "一起听歌已结束" }
@@ -579,6 +614,10 @@ object ListenParty {
     }
 
     private fun applyRoom(snapshot: TogetherProtocol.RoomSnapshot) {
+        quality = snapshot.quality
+        maxKbps = snapshot.maxKbps
+        allowLocal = snapshot.allowLocal
+        TogetherRelay.setEnabled(snapshot.allowLocal, snapshot.quality)
         val wasInRoom = inRoom
         roomCode = snapshot.code
         hostUid = snapshot.hostUid
@@ -668,7 +707,74 @@ object ListenParty {
         return true
     }
 
-    // ---------------------------------------------------------------- 房主：把自己的播放状态发出去
+    // ---------------------------------------------------------------- 本地音乐中转
+
+    /** 房主：房间里正在放本地音乐时，按实时速度把声音分片发给服务端 */
+    private fun relayHostTick() {
+        if (!allowLocal) return
+        val track = queue.getOrNull(current) ?: return
+        if (track.source != MusicSource.LOCAL) return
+        if (MusicPlayer.current?.key != track.key) return
+        TogetherRelay.hostTick(track, MusicPlayer.positionMs, track.durationMs,
+            MusicPlayer.state == MusicPlayer.State.PLAYING, quality) { emit(it) }
+    }
+
+    /** 成员：房间里放的是本地音乐、自己又没这个文件时，向服务端要中转 */
+    private fun relayMemberTick() {
+        if (!allowLocal) return
+        val track = queue.getOrNull(current) ?: return
+        if (track.source != MusicSource.LOCAL) return
+        val state = remote
+        val expected = if (state != null) expectedPos(state) else 0L
+        val now = System.currentTimeMillis()
+        val playing = MusicPlayer.current?.key == track.key &&
+            MusicPlayer.state != MusicPlayer.State.ERROR &&
+            TogetherRelay.playingKey() == track.key
+        if (playing) {
+            relayStartedAt = 0L
+            // 房主拖了进度 / 换了挡位：两边差太多就丢掉旧分片，从新位置重新接
+            val drift = MusicPlayer.positionMs - expected
+            if (abs(drift) > RELAY_RESYNC_MS) {
+                TogetherRelay.onStop()
+                requestedKey = ""
+            }
+            return
+        }
+        if (TogetherRelay.playingKey() == track.key) {
+            // 已经在往解码器喂流，但还没出声：可能是分片还没对齐帧头，别一直干等
+            if (relayStartedAt == 0L) relayStartedAt = now
+            val stuck = MusicPlayer.state == MusicPlayer.State.ERROR ||
+                (MusicPlayer.state == MusicPlayer.State.LOADING && now - relayStartedAt > RELAY_RETRY_MS)
+            if (stuck && now >= relayRetryAt) {
+                relayRetryAt = now + RELAY_RETRY_MS
+                relayStartedAt = 0L
+                TogetherRelay.onStop()
+                requestedKey = ""
+            }
+            return
+        }
+        if (!TogetherRelay.requestOnce(track.key)) {
+            if (TogetherRelay.ready(track.key)) {
+                TogetherRelay.playing(track.key)
+                relayStartedAt = now
+                MusicPlayer.playRelayTrack(queue.toList(), current, TogetherRelay.stream(track.key), expected)
+                return
+            }
+            // 请求可能在半路丢了：隔一会儿再要一次，别一直等下去
+            if (now - relayRequestAt < RELAY_REQ_RETRY_MS) return
+        }
+        relayRequestAt = now
+        emit(TogetherProtocol.message(TogetherProtocol.RELAY_REQ) { addProperty("k", track.key) })
+    }
+
+    /** 房主选"共享音质"：0 = 原始码率，其余是 kbps，由服务端转发给所有人 */
+    fun setQuality(kbps: Int) {
+        if (!isHost) return
+        if (!emitOrWarn(TogetherProtocol.message(TogetherProtocol.SET_QUALITY) { addProperty("q", kbps) })) return
+    }
+
+    /** 服务端配置允许的最高码率；0 = 不限制 */
+    fun qualityAllowed(kbps: Int): Boolean = kbps == 0 || maxKbps == 0 || kbps <= maxKbps
 
     private fun hostTick() {
         val cur = MusicPlayer.current ?: return
@@ -747,6 +853,16 @@ object ListenParty {
     private fun followTick() {
         val s = remote ?: return
         val cur = MusicPlayer.current
+        // 房间放的是本地文件、自己又没有这个文件：本地读不到，交给音频中转，别去反复重试
+        if (s.track.source == MusicSource.LOCAL && role != Role.HOST && LocalLibrary.entry(s.track) == null) {
+            if (!allowLocal) {
+                status = "这首歌在你这边没有，房主也没有开启本地音乐共享"
+                return
+            }
+            if (cur?.key == s.track.key && MusicPlayer.state != MusicPlayer.State.ERROR) return
+            if (!status.contains("中转")) status = "正在等房主的中转…"
+            return
+        }
         if (cur?.key != s.track.key) {
             if (requestedKey != s.track.key) {
                 requestedKey = s.track.key

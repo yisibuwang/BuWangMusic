@@ -1,28 +1,17 @@
 @echo off
-rem Build every Minecraft version and collect the jars in dist\
+rem 构建本仓库维护的所有 Minecraft 版本，并把 jar 收进 dist\
+rem 1.8.9（legacy）是上游代码、没有一起听歌改造，这里不构建也不发布
 setlocal
 cd /d "%~dp0"
-if exist dist rmdir /s /q dist
-mkdir dist
-rem Only collect jars of the current version (old builds stay in build\libs)
+if not exist dist mkdir dist
+rem 只清掉旧的 jar，保留 dist 里的发布说明、校验文件等
+del /q dist\*.jar 2>nul
+rem 只收集当前版本号的产物（旧版本的构建结果留在各自的 build\libs）
 for /f "tokens=2 delims==" %%v in ('findstr /b "version=" version.properties') do set "VER=%%v"
 
-echo === 1.8.9 (Forge) ===
-pushd legacy
-call gradlew.bat build
-if errorlevel 1 (
-    popd
-    echo 1.8.9 build failed
-    exit /b 1
-)
-popd
-rem "+" in the file name means "join files" to copy, so use xcopy
-for %%f in (legacy\build\libs\DangoMusic-%VER%+1.8.9.jar) do xcopy /y /q "%%f" dist\ >nul
-
-rem 1.20.1+ (Fabric / Forge / NeoForge) need JDK 21 (set DANGO_JDK21 to override the default path)
+rem 1.20.1 / 1.21.1 / 1.21.11（Fabric / Forge / NeoForge）需要 JDK 21
 if not defined DANGO_JDK21 set "DANGO_JDK21=C:\Program Files\Java\jdk-21"
-echo.
-echo === 1.20.1+ (Fabric / Forge / NeoForge) ===
+echo === 1.20.1 / 1.21.1 / 1.21.11 (Fabric / Forge / NeoForge) ===
 pushd modern
 call gradlew.bat "-Dorg.gradle.java.home=%DANGO_JDK21%" build
 if errorlevel 1 (
@@ -31,14 +20,13 @@ if errorlevel 1 (
     exit /b 1
 )
 popd
-for /d %%d in (modern\versions\*) do (
-    for %%f in ("%%d\build\libs\DangoMusic-%VER%+*.jar") do xcopy /y /q "%%f" dist\ >nul
-)
+rem 文件名里的 "+" 在 for 里会被当成连接符，所以用 xcopy 而不是 for %%f
+for /d %%d in (modern\versions\*) do xcopy /y /q "%%d\build\libs\BuWangMusic-%VER%+*.jar" dist\ >nul
 
-rem 26.x (Fabric / NeoForge) need JDK 25 (set DANGO_JDK25 to override the default path)
+rem 26.x（Fabric / NeoForge）需要 JDK 25
 if not defined DANGO_JDK25 set "DANGO_JDK25=C:\Program Files\Eclipse Adoptium\jdk-25.0.4.101-hotspot"
 echo.
-echo === 26.x (Fabric / NeoForge) ===
+echo === 26.1.2 / 26.2 / 26.3 (Fabric / NeoForge) ===
 pushd modern26
 call gradlew.bat "-Dorg.gradle.java.home=%DANGO_JDK25%" build
 if errorlevel 1 (
@@ -47,9 +35,7 @@ if errorlevel 1 (
     exit /b 1
 )
 popd
-for /d %%d in (modern26\versions\*) do (
-    for %%f in ("%%d\build\libs\DangoMusic-%VER%+*.jar") do xcopy /y /q "%%f" dist\ >nul
-)
+for /d %%d in (modern26\versions\*) do xcopy /y /q "%%d\build\libs\BuWangMusic-%VER%+*.jar" dist\ >nul
 
 echo.
 echo Done. Jars in dist\:

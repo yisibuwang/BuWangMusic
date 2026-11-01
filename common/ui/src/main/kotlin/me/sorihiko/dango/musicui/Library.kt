@@ -13,7 +13,7 @@ import me.sorihiko.dango.music.SourceAccessException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
-internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, SETTINGS }
+internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, LOCAL, SETTINGS }
 
 /** 关掉播放器再打开时还保留的界面状态 */
 internal object ScreenState {
@@ -138,7 +138,7 @@ internal object Library {
                     if (request.api.source == MusicSource.NETEASE) error = NeteaseApi.lastSearchError
                 }
             } catch (e: Exception) {
-                // 记下真正的原因（以前直接吞掉，日志里什么都看不到）
+                // 失败原因记进日志，界面只拿公开的错误文案
                 me.sorihiko.dango.DangoLogger.warn("{} search failed: {}", request.api.source.key, e.toString())
                 error = publicError(e)
                 emptyList()

@@ -1,8 +1,10 @@
 package me.sorihiko.dango.musicui
 
+import me.sorihiko.dango.i18n.I18n
 import me.sorihiko.dango.music.CoverCache
 import me.sorihiko.dango.music.MusicPlayer
 import me.sorihiko.dango.music.MusicScreen
+import me.sorihiko.dango.music.MusicSource
 import me.sorihiko.dango.music.NeteaseTrack
 import me.sorihiko.dango.party.ListenParty
 import me.sorihiko.dango.ui.LayoutBounds
@@ -126,8 +128,10 @@ internal class QueueSheet(private val screen: MusicScreen) {
         val titleColor = if (playing) RED else Theme.TEXT_PRIMARY
         val textW = row.width - 116f
         ui.text(ui.trim(track.name, textW, 11.5f, Theme.FONT_MEDIUM), row.x + 58f, row.y + 7f, 11.5f, titleColor, Theme.FONT_MEDIUM)
+        val subtitle = if (track.source == MusicSource.LOCAL) track.artists.joinToString(" / ") + " · " + I18n.text("Local file")
+        else track.artists.joinToString(" / ")
         ui.text(
-            ui.trim(track.artists.joinToString(" / "), textW, 9.5f),
+            ui.trim(subtitle, textW, 9.5f),
             row.x + 58f, row.y + 20f, 9.5f, Theme.TEXT_SECONDARY,
         )
         ui.text(fmtTime(track.durationMs), row.right - 50f, row.y + 10f, 9.5f, Theme.TEXT_SECONDARY)

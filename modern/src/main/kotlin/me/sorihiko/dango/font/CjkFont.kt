@@ -133,9 +133,9 @@ object CjkFont {
             if (font.canDisplay('中')) out += font
         }
         if (out.isEmpty()) {
-            DangoLogger.warn("Dango Music: no CJK font found on this system; Chinese / Japanese / Korean text cannot be shown")
+            DangoLogger.warn("BuWang Music: no CJK font found on this system; Chinese / Japanese / Korean text cannot be shown")
         } else {
-            DangoLogger.info("Dango Music: loaded CJK font from file: {}", out.joinToString { it.fontName })
+            DangoLogger.info("BuWang Music: loaded CJK font from file: {}", out.joinToString { it.fontName })
         }
         out
     }

@@ -189,7 +189,7 @@ internal object McCompat {
         try {
             GpuDevice::class.java.getDeclaredField("backend").apply { isAccessible = true }
         } catch (t: Throwable) {
-            DangoLogger.error("Dango Music: cannot find GPU backend: {}", t)
+            DangoLogger.error("BuWang Music: cannot find GPU backend: {}", t)
             null
         }
     }
@@ -209,7 +209,7 @@ internal object McCompat {
             }
             // Vulkan：试着自己开一个看不见的 OpenGL 环境
             offscreenGl = OffscreenGl.create()
-            if (!offscreenGl) DangoLogger.warn("Dango Music: graphics backend is {} and no OpenGL is available, lyrics and the player screen are disabled", backend.javaClass.name)
+            if (!offscreenGl) DangoLogger.warn("BuWang Music: graphics backend is {} and no OpenGL is available, lyrics and the player screen are disabled", backend.javaClass.name)
             glChecked = offscreenGl
             return offscreenGl
         }
@@ -231,7 +231,7 @@ internal object McCompat {
         lastNoGlNotice = now
         player.sendSystemMessage(
             Component.literal(
-                "[Dango Music] Lyrics and the music screen only work with OpenGL for now. " +
+                "[BuWang Music] Lyrics and the music screen only work with OpenGL for now. " +
                     "Switch the graphics API to OpenGL in Video Settings (music still plays).",
             ),
         )
@@ -274,7 +274,7 @@ internal object McCompat {
         if (zeroToOneDepth) fixed.set(Matrix4f().translation(0f, 0f, 0.5f).scale(1f, 1f, 0.5f).mul(m))
         val depth = screenProjections.size
         while (orthoBuffers.size <= depth) {
-            orthoBuffers.add(ProjectionMatrixBuffer("Dango Music ortho ${orthoBuffers.size}"))
+            orthoBuffers.add(ProjectionMatrixBuffer("BuWang Music ortho ${orthoBuffers.size}"))
         }
         screenProjections.addLast(fixed)
         // 自己的 OpenGL 环境里画时，原版（Vulkan）的投影不用跟着换
@@ -298,7 +298,7 @@ internal object McCompat {
                 ?: fields.first { it.type == Int::class.javaPrimitiveType && !Modifier.isStatic(it.modifiers) })
                 .apply { isAccessible = true }
         } catch (t: Throwable) {
-            DangoLogger.error("Dango Music: cannot read projection buffer: {}", t)
+            DangoLogger.error("BuWang Music: cannot read projection buffer: {}", t)
             null
         }
     }
@@ -334,7 +334,7 @@ internal object McCompat {
         val backend = backend() ?: error("no GPU device")
         backend.javaClass.getDeclaredMethod(name).apply { isAccessible = true }
     } catch (t: Throwable) {
-        DangoLogger.error("Dango Music: cannot find {}: {}", name, t)
+        DangoLogger.error("BuWang Music: cannot find {}: {}", name, t)
         null
     }
 
@@ -586,20 +586,20 @@ internal object OffscreenGl {
             GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 3)
             GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE)
             GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_FORWARD_COMPAT, GLFW.GLFW_TRUE)
-            val w = GLFW.glfwCreateWindow(16, 16, "Dango Music (offscreen)", 0L, 0L)
+            val w = GLFW.glfwCreateWindow(16, 16, "BuWang Music (offscreen)", 0L, 0L)
             GLFW.glfwDefaultWindowHints()
             if (w == 0L) {
-                DangoLogger.warn("Dango Music: cannot create an offscreen OpenGL context")
+                DangoLogger.warn("BuWang Music: cannot create an offscreen OpenGL context")
                 return false
             }
             GLFW.glfwMakeContextCurrent(w)
             GL.createCapabilities()
             window = w
-            DangoLogger.info("Dango Music: drawing through an offscreen OpenGL context on Vulkan: {} / {}",
+            DangoLogger.info("BuWang Music: drawing through an offscreen OpenGL context on Vulkan: {} / {}",
                 GL11.glGetString(GL11.GL_RENDERER) ?: "?", GL11.glGetString(GL11.GL_VERSION) ?: "?")
             true
         } catch (t: Throwable) {
-            DangoLogger.error("Dango Music: offscreen OpenGL failed: {}", t)
+            DangoLogger.error("BuWang Music: offscreen OpenGL failed: {}", t)
             false
         }
     }
@@ -656,7 +656,7 @@ internal object VulkanBridge {
         if (readBuffer == null || readW != w || readH != h) {
             readBuffer?.close()
             readBuffer = RenderSystem.getDevice().createBuffer(
-                { "Dango Music scene readback" }, GpuBuffer.USAGE_COPY_DST or GpuBuffer.USAGE_MAP_READ, w.toLong() * h * 4,
+                { "BuWang Music scene readback" }, GpuBuffer.USAGE_COPY_DST or GpuBuffer.USAGE_MAP_READ, w.toLong() * h * 4,
             )
             readW = w
             readH = h
@@ -679,7 +679,7 @@ internal object VulkanBridge {
                     fresh = true
                 }
             } catch (t: Throwable) {
-                DangoLogger.warn("Dango Music: reading the game image failed: {}", t.toString())
+                DangoLogger.warn("BuWang Music: reading the game image failed: {}", t.toString())
             } finally {
                 pending = false
             }
@@ -717,7 +717,7 @@ internal object VulkanBridge {
             Triple(argb, w, h)
         }
     } catch (t: Throwable) {
-        DangoLogger.warn("Dango Music: cannot load {}: {}", id, t.toString())
+        DangoLogger.warn("BuWang Music: cannot load {}: {}", id, t.toString())
         null
     }
 
@@ -741,7 +741,7 @@ internal object VulkanBridge {
                 readImage(Identifier.fromNamespaceAndPath(id.namespace, "textures/" + id.path))
             }
         } catch (t: Throwable) {
-            DangoLogger.warn("Dango Music: cannot load the pixel font: {}", t.toString())
+            DangoLogger.warn("BuWang Music: cannot load the pixel font: {}", t.toString())
             null
         }
         return pixelFont
@@ -811,7 +811,7 @@ internal class ScreenLayer(path: String) {
         init {
             val device = RenderSystem.getDevice()
             val t: GpuTexture = device.createTexture(
-                "Dango Music layer",
+                "BuWang Music layer",
                 GpuTexture.USAGE_TEXTURE_BINDING or GpuTexture.USAGE_RENDER_ATTACHMENT or GpuTexture.USAGE_COPY_DST,
                 GpuFormat.RGBA8_UNORM, w, h, 1, 1,
             )
@@ -956,14 +956,14 @@ abstract class CompatScreen(title: Component) : Screen(title) {
             if (sink !in children()) addWidget(sink)
             if (focused !== sink) {
                 focused = sink
-                me.sorihiko.dango.DangoLogger.info("Dango Music: text input on (system IME allowed)")
+                me.sorihiko.dango.DangoLogger.info("BuWang Music: text input on (system IME allowed)")
             }
             // IMBlocker 只认"最近画过"的输入框：它在原版画输入框时（会问一次 isFocused）记下时间。
             // 隐藏的输入框不画，就每帧在我们画界面时替它问一次，让 IMBlocker 当它在屏幕上
             sink.isFocused
         } else if (focused === sink) {
             focused = null
-            me.sorihiko.dango.DangoLogger.info("Dango Music: text input off")
+            me.sorihiko.dango.DangoLogger.info("BuWang Music: text input off")
         }
     }
 

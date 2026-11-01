@@ -13,7 +13,7 @@ import net.minecraft.network.chat.Component
 class ModernMusicScreen(
     /** 关闭后回到哪个界面（null = 回到游戏） */
     private val parent: Screen?,
-) : CompatScreen(Component.literal("Dango Music")) {
+) : CompatScreen(Component.literal("BuWang Music")) {
 
     private val screen = DangoClient.newMusicScreen { McCompat.setScreen(parent) }
 

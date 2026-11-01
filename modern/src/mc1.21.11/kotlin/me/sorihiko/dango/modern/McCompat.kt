@@ -167,7 +167,7 @@ internal object McCompat {
     fun pushScreenProjection(m: Matrix4f) {
         val depth = screenProjections.size
         while (orthoBuffers.size <= depth) {
-            orthoBuffers.add(PerspectiveProjectionMatrixBuffer("Dango Music ortho ${orthoBuffers.size}"))
+            orthoBuffers.add(PerspectiveProjectionMatrixBuffer("BuWang Music ortho ${orthoBuffers.size}"))
         }
         screenProjections.addLast(Matrix4f(m))
         savedProjections.addLast(RenderSystem.getProjectionMatrixBuffer() to RenderSystem.getProjectionType())
@@ -187,7 +187,7 @@ internal object McCompat {
                 .first { it.type == Int::class.javaPrimitiveType && !Modifier.isStatic(it.modifiers) }
                 .apply { isAccessible = true }
         } catch (t: Throwable) {
-            DangoLogger.error("Dango Music: cannot read projection buffer: {}", t)
+            DangoLogger.error("BuWang Music: cannot read projection buffer: {}", t)
             null
         }
     }
@@ -360,7 +360,7 @@ private object ScreenLayer {
         init {
             val device = RenderSystem.getDevice()
             val t = device.createTexture(
-                "Dango Music screen",
+                "BuWang Music screen",
                 GpuTexture.USAGE_TEXTURE_BINDING or GpuTexture.USAGE_RENDER_ATTACHMENT,
                 TextureFormat.RGBA8, w, h, 1, 1,
             )
@@ -444,14 +444,14 @@ abstract class CompatScreen(title: Component) : Screen(title) {
             if (sink !in children()) addWidget(sink)
             if (focused !== sink) {
                 focused = sink
-                me.sorihiko.dango.DangoLogger.info("Dango Music: text input on (system IME allowed)")
+                me.sorihiko.dango.DangoLogger.info("BuWang Music: text input on (system IME allowed)")
             }
             // IMBlocker 只认"最近画过"的输入框：它在原版画输入框时（会问一次 isFocused）记下时间。
             // 隐藏的输入框不画，就每帧在我们画界面时替它问一次，让 IMBlocker 当它在屏幕上
             sink.isFocused
         } else if (focused === sink) {
             focused = null
-            me.sorihiko.dango.DangoLogger.info("Dango Music: text input off")
+            me.sorihiko.dango.DangoLogger.info("BuWang Music: text input off")
         }
     }
 

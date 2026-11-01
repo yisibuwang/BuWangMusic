@@ -240,14 +240,14 @@ abstract class CompatScreen(title: Component) : Screen(title) {
             if (sink !in children()) addWidget(sink)
             if (focused !== sink) {
                 focused = sink
-                me.sorihiko.dango.DangoLogger.info("Dango Music: text input on (system IME allowed)")
+                me.sorihiko.dango.DangoLogger.info("BuWang Music: text input on (system IME allowed)")
             }
             // IMBlocker 只认"最近画过"的输入框：它在原版画输入框时（会问一次 isFocused）记下时间。
             // 隐藏的输入框不画，就每帧在我们画界面时替它问一次，让 IMBlocker 当它在屏幕上
             sink.isFocused
         } else if (focused === sink) {
             focused = null
-            me.sorihiko.dango.DangoLogger.info("Dango Music: text input off")
+            me.sorihiko.dango.DangoLogger.info("BuWang Music: text input off")
         }
     }
 

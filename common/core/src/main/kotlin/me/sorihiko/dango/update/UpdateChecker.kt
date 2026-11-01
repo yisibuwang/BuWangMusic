@@ -16,8 +16,8 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 更新提醒：看 GitHub 上有没有比这个 jar 新的正式版。
- * 先问一起听歌中转的 /update（国内连得上，也不受 GitHub 每个 IP 每小时 60 次的限制），不行再直接问 GitHub。
+ * 更新提醒：看本仓库（yisibuwang/BuWangMusic）的 GitHub Release 里有没有比这个 jar 新的正式版。
+ * 配了中转就先用中转的 /update（不受 GitHub 每个 IP 每小时 60 次的限制），不行再直接问 GitHub。
  * 每次启动最多查一次，结果缓存 12 小时（config/dangomusic/update_check.json）；查不到就不提醒，也不报错。
  * 只提醒，不下载、不替换任何文件。
  */
@@ -29,7 +29,10 @@ object UpdateChecker {
     /** 有更新时给界面用：新版本号、发布页、适合当前游戏版本的 jar 的下载地址（找不到就是发布页） */
     class Info(val version: String, val page: String, val download: String)
 
-    const val GITHUB_LATEST = "https://api.github.com/repos/Sorihiko/DangoMusic/releases/latest"
+    const val REPO = "yisibuwang/BuWangMusic"
+    const val GITHUB_LATEST = "https://api.github.com/repos/yisibuwang/BuWangMusic/releases/latest"
+    /** 发布页都长这样；缓存里如果是别的仓库（比如改名前存的上游结果）就直接丢掉 */
+    private const val PAGE_PREFIX = "https://github.com/yisibuwang/BuWangMusic"
     private const val CACHE_MS = 12 * 60 * 60_000L
     /** 进游戏后等多久再查（客户端 tick，20 个一秒），别和启动时的加载抢网络 */
     private const val START_DELAY_TICKS = 200
@@ -47,19 +50,16 @@ object UpdateChecker {
 
     /**
      * 可选的中转地址：`config/dangomusic/relay.properties` 里配了 RELAY_URL 就多一条更快的更新检查路径，
-     * 没配就走 GitHub。老的 firebase.properties 只是兼容以前的安装（一起听歌已经不需要 Firebase 了）。
+     * 没配就直接问 GitHub。BuWang Music 不再需要 Firebase，老配置文件不再读取。
      */
     private val relayUrl: String by lazy {
         try {
             val p = Properties()
-            val dir = DangoMusic.instance.platform.configDir.resolve("dangomusic")
-            val file = dir.resolve("relay.properties").toFile().takeIf { it.isFile }
-                ?: dir.resolve("firebase.properties").toFile().takeIf { it.isFile }
-            if (file != null) {
+            val file = DangoMusic.instance.platform.configDir.resolve("dangomusic").resolve("relay.properties").toFile()
+            if (file.isFile) {
                 file.inputStream().use { p.load(it) }
             } else {
                 UpdateChecker::class.java.getResourceAsStream("/relay.properties")?.use { p.load(it) }
-                    ?: UpdateChecker::class.java.getResourceAsStream("/firebase.properties")?.use { p.load(it) }
             }
             val raw = p.getProperty("RELAY_URL", "").trim().trimEnd('/')
             // 只接受 https，或者本机调试用的 http
@@ -105,7 +105,7 @@ object UpdateChecker {
     private fun check() {
         val current = currentVersion
         if (current.isEmpty()) return
-        val cache = readCache()
+        val cache = readCache()?.takeIf { it.second.page.startsWith(PAGE_PREFIX) }
         val now = System.currentTimeMillis()
         val release = if (cache != null && now - cache.first < CACHE_MS) {
             cache.second
@@ -113,15 +113,18 @@ object UpdateChecker {
             fetchLatest(relayUrl, GITHUB_LATEST)?.also { writeCache(now, it) } ?: cache?.second
         } ?: return
         available = infoFor(release, current, target)
-        available?.let { DangoLogger.info("Dango Music {} is available (this is {})", it.version, current) }
+        available?.let { DangoLogger.info("BuWang Music {} is available (this is {})", it.version, current) }
     }
 
     /** 有比 [current] 新的正式版就返回提醒信息 */
     @JvmStatic
     fun infoFor(release: Release, current: String, target: String): Info? {
         if (release.version.isEmpty() || compareVersions(release.version, current) <= 0) return null
-        val jar = "DangoMusic-" + release.version + "+" + target + ".jar"
-        val download = release.assets.firstOrNull { it.first == jar }?.second ?: release.page
+        // 发布页上的文件名是 BuWangMusic-<版本>+<游戏版本>-<加载器>.jar
+        val jar = "BuWangMusic-" + release.version + "+" + target + ".jar"
+        val download = release.assets.firstOrNull { it.first == jar }?.second
+            ?: release.assets.firstOrNull { it.first.endsWith("+$target.jar") }?.second
+            ?: release.page
         return Info(release.version, release.page, download)
     }
 
@@ -209,7 +212,7 @@ object UpdateChecker {
             c.connectTimeout = 5000
             c.readTimeout = 10000
             c.setRequestProperty("Accept", "application/json")
-            c.setRequestProperty("User-Agent", "DangoMusic/" + currentVersion.ifEmpty { "dev" })
+            c.setRequestProperty("User-Agent", "BuWangMusic/" + currentVersion.ifEmpty { "dev" })
             if (c.responseCode != 200) return null
             val out = ByteArrayOutputStream()
             c.inputStream.use { input ->

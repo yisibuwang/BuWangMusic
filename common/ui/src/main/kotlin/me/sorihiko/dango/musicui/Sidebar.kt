@@ -4,6 +4,7 @@ import me.sorihiko.dango.i18n.I18n
 
 import me.sorihiko.dango.DangoClient
 import me.sorihiko.dango.music.CoverCache
+import me.sorihiko.dango.music.LocalLibrary
 import me.sorihiko.dango.music.MusicScreen
 import me.sorihiko.dango.music.NeteaseApi
 import me.sorihiko.dango.music.MusicSource
@@ -174,19 +175,68 @@ internal class Sidebar(private val screen: MusicScreen) {
             y += 32f
         }
 
-        section("DANGO MUSIC")
-        nav("⌂", I18n.text("Home"), page == Page.HOME, true) { screen.go(Page.HOME) }
+        val localMode = MusicSources.selected == MusicSource.LOCAL
+        section(if (localMode) I18n.text("LOCAL MUSIC") else I18n.text("BUWANG MUSIC"))
+        if (localMode) {
+            nav("⌂", I18n.text("Local music"), page == Page.LOCAL, true) { screen.showLocalAll() }
+        } else {
+            nav("⌂", I18n.text("Home"), page == Page.HOME, true) { screen.go(Page.HOME) }
+        }
         section(I18n.text("DISCOVER"))
-        nav("▤", I18n.text("Charts"), page == Page.CHARTS, false) { screen.go(Page.CHARTS) }
+        if (!localMode) nav("▤", I18n.text("Charts"), page == Page.CHARTS, false) { screen.go(Page.CHARTS) }
         nav("♫", I18n.text("Now Playing"), page == Page.QUEUE, false) { screen.go(Page.QUEUE) }
         nav("♬", if (ListenParty.role == ListenParty.Role.NONE) I18n.text("Listen Together") else I18n.text("Listen Together · ") + ListenParty.members.size,
             page == Page.PARTY, ListenParty.role != ListenParty.Role.NONE) { screen.go(Page.PARTY) }
         y += 4f
+        val footerH = 92f
+        if (localMode) {
+            section(I18n.text("FOLDERS"))
+            val rowH = 30f
+            listArea = LayoutBounds(side.x + 6f, y, side.width - 12f, side.bottom - footerH - y)
+            val rows = max(1, (listArea.height / rowH).toInt())
+            val folders = LocalLibrary.folders
+            scroll = scroll.coerceIn(0, max(0, folders.size - rows))
+            scrollPos = ui.easeScroll(scrollPos, scroll, rows * 3)
+            val first = kotlin.math.floor(scrollPos).toInt()
+            val frac = scrollPos - first
+            val shown = if (menuNow != null) LayoutBounds(listArea.x, listArea.y, listArea.width,
+                max(0f, kotlin.math.min(listArea.bottom, menuNow.y - 4f) - listArea.y)) else listArea
+            ui.beginClip(shown)
+            for (r in 0..rows) {
+                val i = first + r
+                if (i < 0) continue
+                if (i >= folders.size) break
+                val folder = folders[i]
+                val row = LayoutBounds(listArea.x, listArea.y + (r - frac) * rowH, listArea.width, rowH - 2f)
+                val active = page == Page.LOCAL && screen.localFolderFilter().equals(folder, ignoreCase = true)
+                if (active) {
+                    newKey = "lf:$folder"
+                    newTarget = row
+                } else if (ui.hover(row)) {
+                    ui.card(row, Theme.CARD_HOVER, 9f)
+                }
+                ui.icon("▤", row.x + 18f, row.y + 14f, 11f, if (active) RED else Theme.TEXT_SECONDARY)
+                val name = LocalLibrary.label(folder)
+                ui.text(ui.trim(name, row.right - 8f - (row.x + 34f), 12f), row.x + 34f, row.y + 9f, 12f,
+                    if (active) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY)
+                if (!LocalLibrary.isManaged(folder) && ui.hover(row)) {
+                    val del = LayoutBounds(row.right - 24f, row.y + (row.height - 18f) / 2f, 18f, 18f)
+                    val gw = ui.width("×", 12f)
+                    ui.text("×", del.x + (del.width - gw) / 2f, del.y + (del.height - 12f) / 2f + 1f, 12f, Theme.TEXT_TERTIARY)
+                    ui.hits += del to {
+                        LocalLibrary.removeFolder(folder)
+                        screen.clearLocalFolderFilter(folder)
+                    }
+                }
+                ui.hits += row.intersect(shown) to { screen.showLocalFolder(folder) }
+            }
+            ui.endClip()
+            if (folders.isEmpty()) ui.text(I18n.text("No folders yet"), x + 2f, listArea.y + 6f, 11f, Theme.TEXT_TERTIARY)
+        } else {
         section(I18n.text("MY PLAYLISTS"))
 
         // 歌单列表（底部留出按钮和账号的位置）
         val rowH = 30f
-        val footerH = 92f
         listArea = LayoutBounds(side.x + 6f, y, side.width - 12f, side.bottom - footerH - y)
         val rows = max(1, (listArea.height / rowH).toInt())
         val list = Library.playlists
@@ -224,6 +274,7 @@ internal class Sidebar(private val screen: MusicScreen) {
             val msg = if (Library.playlistsLoading) I18n.text("Loading...") else if (loggedIn) I18n.text("No playlists") else I18n.text("Log in to see your playlists")
             ui.text(msg, x + 2f, listArea.y + 6f, 11f, Theme.TEXT_TERTIARY)
             if (Library.playlistsLoading) ui.progressBar(LayoutBounds(x + 2f, listArea.y + 24f, iw - 4f, 3f), null)
+        }
         }
 
         // 设置按钮（歌单会在打开播放器时自动刷新，不需要刷新按钮）；被音源菜单盖住时不画
@@ -275,6 +326,23 @@ internal class Sidebar(private val screen: MusicScreen) {
         val source = MusicSources.selected
         val native = source != MusicSource.NETEASE
         val account = if (native) NativeAccounts.get(source) else null
+
+        // 本地音源没有账号：只留"本地音乐 + 音源按钮"，不再出现登录入口
+        if (source == MusicSource.LOCAL) {
+            val label = I18n.text(source.label)
+            val w = ui.width(label, 10f, Theme.FONT_MEDIUM) + 26f
+            val chip = LayoutBounds(ub.right - w - 6f, ub.y + 9f, w, 22f)
+            ui.card(chip, if (menuOpen || ui.hover(chip)) Theme.CARD_HOVER else Theme.CARD, 7f)
+            ui.text(label, chip.x + 8f, chip.y + 7f, 10f, if (menuOpen) Theme.TEXT_PRIMARY else Theme.TEXT_SECONDARY, Theme.FONT_MEDIUM)
+            ui.icon("⇄", chip.right - 10f, chip.y + 11f, 10f, Theme.TEXT_SECONDARY)
+            chipRect = chip
+            menuRects += chip
+            ui.hits += chip to { menuOpen = !menuOpen }
+            ui.ctx.drawShape(av, ShapeStyle(Theme.TRACK, 14f))
+            ui.icon("♫", av.x + 14f, av.y + 14f, 12f, RED)
+            ui.text(label, av.right + 10f, ub.y + 14f, 12f, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+            return
+        }
 
         // 右边的音源按钮：当前音源名 + ⇄；登记在整行前面，点它只开关菜单
         val chipLabel = I18n.text(source.label)

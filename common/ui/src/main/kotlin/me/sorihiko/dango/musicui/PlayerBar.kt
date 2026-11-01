@@ -41,6 +41,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     private val playMorph = Spring(320f, 26f)
     /** 进度条上的圆钮：鼠标移上去时渐显 */
     private val progKnob = Spring(300f, 26f)
+    /** 正在拖进度条（按下后移动鼠标即拖动；松手前一直有效） */
+    private var scrubbing = false
+    private var lastScrubAt = 0L
 
     fun draw(bar: LayoutBounds) {
         val ctx = ui.ctx
@@ -58,6 +61,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val sub = when {
             t == null -> "-"
             MusicPlayer.message.isNotEmpty() -> I18n.message(MusicPlayer.message)
+            t.source == MusicSource.LOCAL -> t.artists.joinToString(" / ") + " · " + I18n.text("Local file")
             else -> t.artists.joinToString(" / ")
         }
         ui.text(ui.trim(sub, infoW, 11f), infoX, coverBox.y + 28f, 11f, Theme.TEXT_SECONDARY)
@@ -200,8 +204,9 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
     /** 点在进度条 / 音量条上就处理掉，返回 true */
     fun mouseDown(mx: Int, my: Int): Boolean {
         if (progRect.expand(0f, 6f).contains(mx, my)) {
-            val dur = MusicPlayer.durationMs
-            if (dur > 0) MusicPlayer.seek(((mx - progRect.x) / progRect.width * dur).toLong())
+            scrubbing = true
+            lastScrubAt = 0L
+            scrubTo(mx)
             return true
         }
         if (volRect.expand(6f, 8f).contains(mx, my)) {
@@ -211,9 +216,32 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         return false
     }
 
-    /** 按住拖动音量 */
+    /** 拖动：按在进度条上时是拖进度，否则是拖音量 */
     fun mouseDrag(mx: Int, my: Int) {
+        if (scrubbing) {
+            scrubTo(mx)
+            return
+        }
         if (volRect.expand(12f, 12f).contains(mx, my)) setVolumeAt(mx)
+    }
+
+    /** 松手：结束拖动；房间成员拖到最后会再请求一次，让房主按最终位置同步 */
+    fun mouseUp() {
+        if (!scrubbing) return
+        scrubbing = false
+    }
+
+    /** 拖动进度：本地先跟手，房间成员最多每 150 ms 向房主发一次跳转请求 */
+    private fun scrubTo(mx: Int) {
+        if (progRect.width <= 0f) return
+        val dur = MusicPlayer.durationMs
+        if (dur <= 0) return
+        val ratio = ((mx - progRect.x) / progRect.width).coerceIn(0f, 1f)
+        val target = (ratio * dur).toLong()
+        val now = System.nanoTime() / 1_000_000L
+        if (now - lastScrubAt < 150L && ratio < 1f) return
+        lastScrubAt = now
+        MusicPlayer.seek(target)
     }
 
     private fun setVolumeAt(x: Int) {

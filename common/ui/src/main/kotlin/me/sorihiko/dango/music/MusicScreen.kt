@@ -6,6 +6,8 @@ import me.sorihiko.dango.DangoClient
 import me.sorihiko.dango.module.impls.music.NeteaseMusicModule
 import me.sorihiko.dango.musicui.GridPage
 import me.sorihiko.dango.musicui.Library
+import me.sorihiko.dango.music.LocalLibrary
+import me.sorihiko.dango.musicui.LocalPage
 import me.sorihiko.dango.musicui.LoginDialog
 import me.sorihiko.dango.musicui.Page
 import me.sorihiko.dango.musicui.PartyPage
@@ -51,6 +53,7 @@ class MusicScreen(
     internal val login = LoginDialog(this)
     private val grid = GridPage(this)
     private val party = PartyPage(this)
+    private val local = LocalPage(this)
     private val settings = SettingsPage(this, module)
 
     /** 播放栏右侧弹出的播放列表 */
@@ -114,7 +117,27 @@ class MusicScreen(
         ScreenState.lastQuery = ""
         ScreenState.opened = null
         Library.ensureSource()
-        go(Page.HOME)
+        go(if (source == MusicSource.LOCAL) Page.LOCAL else Page.HOME)
+    }
+
+    /** 本地音乐当前按哪个文件夹筛选（侧栏用来高亮） */
+    internal fun localFolderFilter(): String = local.folderFilter
+
+    /** 侧栏点「本地音乐」：清掉所有筛选，显示全部；已经在本地音乐页时也生效 */
+    internal fun showLocalAll() {
+        local.resetFilter()
+        if (ScreenState.page != Page.LOCAL) go(Page.LOCAL)
+    }
+
+    /** 侧栏点了删除后，如果正在按这个文件夹筛选就退回全部 */
+    internal fun clearLocalFolderFilter(folder: String) {
+        if (local.folderFilter.equals(folder, ignoreCase = true)) local.resetFilter()
+    }
+
+    /** 侧栏点某个文件夹：按文件夹筛选并切到本地音乐页 */
+    internal fun showLocalFolder(folder: String) {
+        local.filterByFolder(folder)
+        if (ScreenState.page != Page.LOCAL) go(Page.LOCAL)
     }
 
     internal fun go(p: Page) {
@@ -126,6 +149,7 @@ class MusicScreen(
         when (p) {
             Page.HOME -> Library.loadRecommend()
             Page.CHARTS -> Library.loadCharts()
+            Page.LOCAL -> LocalLibrary.load()
             Page.QUEUE -> if (ScreenState.coverView) tracks.focusCurrentInCoverflow()
             else -> {}
         }
@@ -190,6 +214,7 @@ class MusicScreen(
     internal fun blurTextFields() {
         sidebar.searchFocused = false
         tracks.filterFocused = false
+        party.blurCode()
         party.blurCode()
     }
 
@@ -298,6 +323,7 @@ class MusicScreen(
         // 滚轮区域：哪一页画了，哪一页才有
         grid.area = LayoutBounds()
         tracks.area = LayoutBounds()
+        local.area = LayoutBounds()
         settings.area = LayoutBounds()
 
         val s = ScreenState
@@ -322,6 +348,7 @@ class MusicScreen(
                 grid.draw(body, I18n.text("Charts"), I18n.format("%d charts", c.size), c, Library.chartsLoading)
             }
             Page.PARTY -> ui.itemAnim(0) { party.draw(body) }
+            Page.LOCAL -> ui.itemAnim(0) { local.draw(body) }
             Page.SETTINGS -> settings.draw(body)
             else -> tracks.draw(body)
         }
@@ -381,6 +408,7 @@ class MusicScreen(
         if (module.openKey.value < 0) openKeyHeld = false
         tracks.scrollbarUp()
         settings.stopDrag()
+        bar.mouseUp()
     }
 
     /** 滚轮：[wheel] 正数向上；(x, y) 是滚动时鼠标的窗口像素位置 */
@@ -397,6 +425,7 @@ class MusicScreen(
             sidebar.listArea.contains(lx, ly) -> sidebar.scrollBy(step)
             grid.area.contains(lx, ly) -> grid.scroll(wheel)
             tracks.area.contains(lx, ly) -> tracks.scroll(wheel, step)
+            local.area.contains(lx, ly) -> local.scrollBy(step)
         }
     }
 

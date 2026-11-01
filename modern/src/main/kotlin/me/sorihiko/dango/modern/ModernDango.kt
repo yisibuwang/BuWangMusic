@@ -34,7 +34,7 @@ object ModernDango {
         try {
             ModernGl.init()
         } catch (t: Throwable) {
-            DangoLogger.error("Dango Music GL init failed: {}", t)
+            DangoLogger.error("BuWang Music GL init failed: {}", t)
         }
         DangoMusic.callEvent(TickEvent)
     }

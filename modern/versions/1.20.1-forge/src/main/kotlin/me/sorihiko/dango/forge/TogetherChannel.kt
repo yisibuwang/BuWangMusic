@@ -6,6 +6,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent
+import net.minecraftforge.event.server.ServerStartedEvent
 import net.minecraftforge.event.server.ServerStoppingEvent
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.network.NetworkDirection
@@ -63,6 +64,7 @@ object TogetherChannel {
             channel.send(PacketDistributor.PLAYER.with { player }, Payload(json))
         }
         // 服务器关掉时把会话清空，下次开服是新的
+        MinecraftForge.EVENT_BUS.addListener { event: ServerStartedEvent -> TogetherServer.ensureConfigured(event.server) }
         MinecraftForge.EVENT_BUS.addListener { _: ServerStoppingEvent -> TogetherServer.reset() }
         // 玩家断开时把他移出一听
         MinecraftForge.EVENT_BUS.addListener { event: PlayerLoggedOutEvent ->

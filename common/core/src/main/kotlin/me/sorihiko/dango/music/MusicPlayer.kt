@@ -54,6 +54,8 @@ object MusicPlayer {
     @Volatile private var line: AudioOutput? = null
     @Volatile private var seekBaseMs = 0L
     @Volatile private var pausedAtMs = 0L
+    /** 中转播放时流并不是从歌曲开头开始，界面进度要加上这一段偏移 */
+    @Volatile private var positionBaseMs = 0L
 
     val durationMs: Long get() = current?.durationMs ?: 0L
 
@@ -88,7 +90,7 @@ object MusicPlayer {
 
     val positionMs: Long
         get() = when (state) {
-            State.PLAYING -> seekBaseMs + (line?.positionMicros ?: 0L) / 1000
+            State.PLAYING -> positionBaseMs + seekBaseMs + (line?.positionMicros ?: 0L) / 1000
             State.PAUSED -> pausedAtMs
             else -> 0L
         }
@@ -164,6 +166,9 @@ object MusicPlayer {
 
     /** 一起听：正在跟随房主（歌放完不自动下一首，等房主切） */
     @Volatile var followMode = false
+
+    /** 当前声音来自房间里的中转流（不是本地文件、也不是平台直链） */
+    @Volatile private var audioRelay = false
 
     private fun canPlay(track: NeteaseTrack): Boolean {
         if (me.sorihiko.dango.party.ListenParty.role == me.sorihiko.dango.party.ListenParty.Role.NONE || me.sorihiko.dango.party.ListenParty.supportsSource(track.source)) return true
@@ -298,19 +303,22 @@ object MusicPlayer {
     }
 
     fun seek(ms: Long) {
-        if (audio == null) return
         if (party.inRoom && !party.isHost) {
             if (!party.canPause) {
                 party.deny("房主没有开放暂停/拖进度权限")
                 return
             }
             party.requestState(me.sorihiko.dango.party.TogetherProtocol.OP_SEEK, ms.coerceIn(0L, max(0L, durationMs - 500)))
+            // 走中转收听时本机没有整首歌，进度由房主带头，这里不再本地跳
+            if (audioRelay || audio == null) return
         }
+        if (audio == null) return
         seekLocal(ms)
     }
 
     private fun seekLocal(ms: Long) {
         val bytes = audio ?: return
+        positionBaseMs = 0L
         val target = ms.coerceIn(0L, max(0L, durationMs - 500))
         // 暂停时拖动：停在新位置，仍保持暂停
         if (state == State.PAUSED) pausedAtMs = target
@@ -331,7 +339,25 @@ object MusicPlayer {
     // ---------------------------------------------------------------- 加载 / 解码
 
     private fun load(gen: Int, track: NeteaseTrack, startAt: (() -> Long)? = null, paused: Boolean = false) {
+        audioRelay = false
+        positionBaseMs = 0L
         try {
+            if (track.source == MusicSource.LOCAL) {
+                val bytes = LocalLibrary.read(track)
+                if (gen != generation) return
+                if (bytes == null || bytes.size < 10_000) return fail(gen, "找不到这个本地文件了，刷新一下本地音乐")
+                audio = bytes
+                message = ""
+                trackGain = 1f
+                val start = (startAt?.invoke() ?: 0L).coerceIn(0L, max(0L, track.durationMs - 1000))
+                if (paused) {
+                    pausedAtMs = start
+                    state = State.PAUSED
+                } else {
+                    startDecode(gen, bytes, start)
+                }
+                return
+            }
             val url = MusicSources.api(track.source).songUrl(track)
             if (gen != generation) return
             if (url == null) return fail(gen, if (track.source == MusicSource.NETEASE) "拿不到播放地址"
@@ -426,7 +452,7 @@ object MusicPlayer {
     private fun logOutput(name: String) {
         if (loggedOutput == name) return
         loggedOutput = name
-        DangoLogger.info("Dango Music: playing through {}", name)
+        DangoLogger.info("BuWang Music: playing through {}", name)
     }
 
     private fun openLine(format: AudioFormat, bufferBytes: Int): SourceDataLine {
@@ -472,18 +498,41 @@ object MusicPlayer {
         return gain.coerceIn(0.25f, 2f)
     }
 
-    private fun startDecode(gen: Int, bytes: ByteArray, startMs: Long) {
-        Thread({ decodeLoop(gen, bytes, startMs) }, "Dango-MusicDecode").apply {
+    private fun startDecode(gen: Int, bytes: ByteArray, startMs: Long) =
+        startDecode(gen, java.io.ByteArrayInputStream(bytes), startMs)
+
+    /** 一起听歌的本地音乐中转：字节从网络里一块块来，解码线程读到一个会阻塞的流上 */
+    private fun startDecode(gen: Int, input: java.io.InputStream, startMs: Long) {
+        Thread({ decodeLoop(gen, input, startMs) }, "Dango-MusicDecode").apply {
             isDaemon = true
             start()
         }
     }
 
-    private fun decodeLoop(gen: Int, bytes: ByteArray, startMs: Long) {
+    /** 中转来的本地歌曲：队列还是房间里的共享队列，声音从 [stream] 里读 */
+    fun playRelayTrack(tracks: List<NeteaseTrack>, at: Int, stream: java.io.InputStream, baseMs: Long = 0L) {
+        val track = tracks.getOrNull(at) ?: return
+        val gen = ++generation
+        stopLine()
+        audioRelay = true
+        positionBaseMs = baseMs.coerceAtLeast(0L)
+        queue = tracks
+        radio = null
+        index = at
+        current = track
+        state = State.LOADING
+        message = ""
+        DangoLogger.info("Relay stream: {}", track.name)
+        loader.execute {
+            if (gen == generation) startDecode(gen, stream, 0L)
+        }
+    }
+
+    private fun decodeLoop(gen: Int, input: java.io.InputStream, startMs: Long) {
         var out: AudioOutput? = null
         var finished = false
         try {
-            val bitstream = Bitstream(ByteArrayInputStream(bytes))
+            val bitstream = Bitstream(input)
             val decoder = Decoder()
 
             // 跳到目标位置：只读帧头不解码，很快

@@ -42,7 +42,7 @@ import me.sorihiko.dango.music.NeteaseTrack
 object TogetherProtocol {
 
     /** 协议版本：服务端和客户端不一致时拒绝请求，免得字段对不上 */
-    const val VERSION = 4
+    const val VERSION = 6
 
     /**
      * 一条自定义通道包的字符串上限。Fabric/Forge 的自定义 payload 上限是 32767 字节，
@@ -56,6 +56,9 @@ object TogetherProtocol {
 
     /** 共享播放列表最多多少首（服务端和客户端都用这个数，超了要明确告诉玩家） */
     const val MAX_QUEUE = 500
+
+    /** 房主可选的音频中转码率（kbps）：0 = 原始码率不转码 */
+    val QUALITY_TIERS = intArrayOf(0, 128, 96, 64)
 
     // ---------------------------------------------------------------- 客户端 → 服务端
 
@@ -73,6 +76,11 @@ object TogetherProtocol {
     const val SET_PERMS = "set_perms"
     const val HOST_STATE = "host_state"
     const val ENDED = "ended"
+    const val SET_QUALITY = "set_quality"
+    const val RELAY_REQ = "relay_req"
+    const val RELAY_DATA = "relay_data"
+    const val RELAY_STOP = "relay_stop"
+    const val RELAY_STATE = "relay_state"
     const val RESYNC = "resync"
 
     // ---------------------------------------------------------------- 服务端 → 客户端
@@ -132,6 +140,12 @@ object TogetherProtocol {
         val playing: Boolean,
         /** 当前这首：单独带一份，队列太长时可以只发队列分片、不重复发整队 */
         val track: NeteaseTrack? = queue.getOrNull(current),
+        /** 房主选的中转码率（kbps），0 表示原始码率不转码 */
+        val quality: Int = 0,
+        /** 服务端配置的最高码率（kbps），0 表示不限制 */
+        val maxKbps: Int = 0,
+        /** 服务端是否允许共享本地音乐 */
+        val allowLocal: Boolean = false,
     )
 
     fun parse(raw: String): JsonObject? = try {
@@ -277,6 +291,9 @@ object TogetherProtocol {
         target.addProperty("current", snapshot.current)
         target.addProperty("pos", snapshot.positionMs)
         target.addProperty("playing", snapshot.playing)
+        target.addProperty("quality", snapshot.quality)
+        target.addProperty("maxKbps", snapshot.maxKbps)
+        if (snapshot.allowLocal) target.addProperty("allowLocal", true)
     }
 
     fun readRoom(message: JsonObject): RoomSnapshot? {
@@ -296,6 +313,9 @@ object TogetherProtocol {
             positionMs = message.num("pos").coerceAtLeast(0L),
             playing = message.flag("playing"),
             track = readTrack(message) ?: queue.getOrNull(current),
+            quality = message.num("quality").toInt(),
+            maxKbps = message.num("maxKbps").toInt(),
+            allowLocal = message.flag("allowLocal"),
         )
     }
 

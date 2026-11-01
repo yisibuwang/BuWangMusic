@@ -88,6 +88,7 @@ subprojects {
         "shade"(kotlin("stdlib"))
         "shade"("javazoom:jlayer:1.0.1")
         "shade"("com.google.zxing:core:3.3.3")
+        "shade"("de.sciss:jump3r:1.0.5")
     }
 
     tasks.named<ProcessResources>("processResources") {
@@ -110,12 +111,13 @@ subprojects {
     val shadowJar = tasks.named<ShadowJar>("shadowJar") {
         configurations.set(listOf(shade))
         archiveVersion.set("$modVersion+$mcVersion")
-        archiveClassifier.set(loader)               // DangoMusic-1.3.1+26.2-fabric.jar
+        archiveClassifier.set(loader)               // BuWangMusic-1.3.1+26.2-fabric.jar
         relocate("kotlin", "me.sorihiko.dango.shadow.kotlin")
         relocate("org.intellij.lang.annotations", "me.sorihiko.dango.shadow.annotations.intellij")
         relocate("org.jetbrains.annotations", "me.sorihiko.dango.shadow.annotations.jetbrains")
         relocate("javazoom", "me.sorihiko.dango.shadow.javazoom")
         relocate("com.google.zxing", "me.sorihiko.dango.shadow.zxing")
+        relocate("de.sciss.jump3r", "me.sorihiko.dango.shadow.jump3r")
         exclude("module-info.class", "META-INF/versions/**", "META-INF/*.kotlin_module")
         addMultiReleaseAttribute.set(false)
     }

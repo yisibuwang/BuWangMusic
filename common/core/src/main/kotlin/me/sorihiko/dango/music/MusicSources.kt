@@ -7,7 +7,7 @@ import java.security.MessageDigest
 
 /** Persistent provider names; never use a process-local counter as a song identifier. */
 enum class MusicSource(val key: String, val label: String) {
-    NETEASE("netease", "NetEase"), QQ("qq", "QQ Music"), KUGOU("kugou", "Kugou");
+    NETEASE("netease", "NetEase"), QQ("qq", "QQ Music"), KUGOU("kugou", "Kugou"), LOCAL("local", "Local");
 }
 
 /** Only locally-authored public messages belong here; never include a token or request URL. */
@@ -56,6 +56,7 @@ object MusicSources {
         MusicSource.NETEASE -> netease
         MusicSource.QQ -> QqMusicSource
         MusicSource.KUGOU -> KugouMusicSource
+        MusicSource.LOCAL -> LocalMusicSource
     }
 
     /** Compatibility ID for existing numeric UI fields. Identity is always [NeteaseTrack.key]. */

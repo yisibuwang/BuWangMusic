@@ -9,7 +9,7 @@ pluginManagement {
     }
 }
 
-rootProject.name = "DangoMusic-modern"
+rootProject.name = "BuWangMusic-modern"
 
 // 共用代码（core + ui）在 ../common，作为组合构建引进来
 includeBuild("../common")

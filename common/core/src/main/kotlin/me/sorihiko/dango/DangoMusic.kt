@@ -10,13 +10,13 @@ import me.sorihiko.dango.platform.Platform
 import java.nio.file.Path
 
 /**
- * Dango Music 的核心：事件系统 + 模块 + 设置。所有 Minecraft 版本共用这一份。
+ * BuWang Music 的核心：事件系统 + 模块 + 设置。所有 Minecraft 版本共用这一份。
  * 和游戏打交道的地方都通过 [Platform]，由各版本的平台层在启动时传进来。
  */
 class DangoMusic private constructor(val platform: Platform) {
     companion object {
         const val MOD_ID = "dangomusic"
-        const val NAME = "Dango Music"
+        const val NAME = "BuWang Music"
 
         lateinit var instance: DangoMusic
             private set

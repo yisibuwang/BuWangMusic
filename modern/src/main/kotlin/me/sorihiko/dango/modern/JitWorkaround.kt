@@ -33,12 +33,12 @@ object JitWorkaround {
         val dirs = candidateDirs()
         for (dir in dirs) {
             if (tryInstall(dir)) {
-                DangoLogger.info("Dango Music: JIT workaround installed (Java {})", java)
+                DangoLogger.info("BuWang Music: JIT workaround installed (Java {})", java)
                 return true
             }
         }
         DangoLogger.warn(
-            "Dango Music: cannot install the Java {} JIT workaround (tried {} folders); the game may crash in a \"C2 CompilerThread\". " +
+            "BuWang Music: cannot install the Java {} JIT workaround (tried {} folders); the game may crash in a \"C2 CompilerThread\". " +
                 "Using Java 21 where the Minecraft version allows it avoids the crash.", java, dirs.size,
         )
         return false

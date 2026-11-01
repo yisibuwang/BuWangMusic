@@ -58,7 +58,7 @@ class KeyBindingLink(
     }
 }
 
-/** 只读 Dango Music 的原版绑定项，不重新加载整个 options.txt。 */
+/** 只读 BuWang Music 的原版绑定项，不重新加载整个 options.txt。 */
 fun savedPlayerKeys(file: Path): Map<String, String> = try {
     if (!Files.exists(file)) emptyMap() else Files.readAllLines(file, StandardCharsets.UTF_8)
         .filter { it.startsWith("key_key.dangomusic.") }
