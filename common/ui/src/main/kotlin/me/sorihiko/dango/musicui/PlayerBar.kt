@@ -53,7 +53,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         // 左：封面 + 歌名 / 歌手
         val cs = 48f
         val coverBox = LayoutBounds(bar.x + 13f, bar.y + (bar.height - cs) / 2f, cs, cs)
-        ui.drawCover(coverBox, t?.let { CoverCache.track(it) }, 8f)
+        ui.drawCover(coverBox, t?.let { CoverCache.trackRounded(it, 0.17f) }, 8f)
         val infoX = coverBox.right + 12f
         val infoW = 220f
         val title = t?.name ?: I18n.text("Not playing")
@@ -182,7 +182,7 @@ internal class PlayerBar(private val screen: MusicScreen, private val module: Ne
         val o = a.on.tick(if (on) 1f else 0f).coerceIn(0f, 1f)
         val h = a.hover.tick(if (ui.hover(b)) 1f else 0f).coerceIn(0f, 1f)
         val k = 1f + a.press.tick(0f) * 0.14f
-        val base = mixColor(Color(1f, 1f, 1f, 0.07f), Theme.CARD_HOVER, h)
+        val base = mixColor(Theme.CARD, Theme.CARD_HOVER, h)
         ui.card(b.scaled(k), mixColor(base, RED.copy(a = 0.85f), o), 9f * k)
         ui.icon(glyph, b.x + 16f, vy, 14f * k, Theme.TEXT_PRIMARY)
         ui.hits += b to {

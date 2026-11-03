@@ -6,6 +6,7 @@ import me.sorihiko.dango.events.HudRenderEvent
 import me.sorihiko.dango.font.MixedText
 import me.sorihiko.dango.gfx.GuiCanvas
 import me.sorihiko.dango.lyrics.Lyrics
+import me.sorihiko.dango.lyrics.LyricsFeed
 import me.sorihiko.dango.module.Category
 import me.sorihiko.dango.module.Module
 import me.sorihiko.dango.module.ModuleMeta
@@ -37,6 +38,12 @@ class SongCardModule : Module() {
 
     @ModuleValue("Scale", "Card size")
     private val scale = FloatValue(0.6f, 2f, 1f, 1)
+
+    @ModuleValue("Lyrics", "Show the current lyric line under the artist")
+    private val cardLyrics = BooleanValue(false)
+
+    @ModuleValue("Lyrics translation", "Show the translated line under the lyric when the song has one")
+    private val cardLyricsTrans = BooleanValue(false)
 
     @ModuleValue("Show when paused", "Keep the card visible while paused")
     private val showPaused = BooleanValue(false)
@@ -121,7 +128,7 @@ class SongCardModule : Module() {
 
     /** 卡片尺寸（逻辑像素，未乘 scale） */
     private val cardW = 320f
-    private val cardH = 104f
+    private val cardH = 116f
 
     /** 卡片用的玻璃：和窗口同材质，但阴影小很多（HUD 上大阴影会显得脏） */
     private fun cardGlass(k: Float) = Theme.GLASS_WINDOW.copy(
@@ -169,8 +176,28 @@ class SongCardModule : Module() {
         // 歌名 / 歌手
         val tx = cover.right + 12f * k
         val tw = waveRight - bars * (bw + gap) - 10f * k - tx
-        text(ctx, trim(t.name, tw, 15f * k, Theme.FONT_SEMIBOLD), tx, cover.y + 8f * k, 15f * k, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
-        text(ctx, trim(t.artists.joinToString(" / "), waveRight - tx, 13f * k), tx, cover.y + 28f * k, 13f * k, Theme.TEXT_SECONDARY)
+        text(ctx, trim(t.name, tw, 15f * k, Theme.FONT_SEMIBOLD), tx, cover.y, 15f * k, Theme.TEXT_PRIMARY, Theme.FONT_SEMIBOLD)
+        text(ctx, trim(t.artists.joinToString(" / "), waveRight - tx, 13f * k), tx, cover.y + 17f * k, 13f * k, Theme.TEXT_SECONDARY)
+
+        // 歌词竖着落在歌手名和进度条之间；有翻译且开关打开时再压一行小字
+        if (cardLyrics.get()) {
+            val cur = LyricsFeed.current()
+            val line = cur?.text
+            if (line != null) {
+                val lsize = 10.5f * k
+                val sub = if (cardLyricsTrans.get() && cur.translation.isNotEmpty()) cur.translation else ""
+                val blockH = if (sub.isEmpty()) lsize else 11f * k + 10f * k
+                val top = cover.y + 30f * k
+                val rowCy = b.bottom - pad - 5f * k
+                val ly = (top + rowCy - 5f * k) / 2f - blockH / 2f
+                val ink = if (Theme.lyricAccent) Theme.LYRIC else Theme.TEXT_SECONDARY
+                val inkSub = if (Theme.lyricAccent) Theme.LYRIC_SUB else Theme.TEXT_TERTIARY
+                text(ctx, trim(line, tw, lsize, Theme.FONT_MEDIUM), tx, ly, lsize, ink, Theme.FONT_MEDIUM)
+                if (sub.isNotEmpty()) {
+                    text(ctx, trim(sub, tw, 9f * k, Theme.FONT_REGULAR), tx, ly + 11f * k, 9f * k, inkSub)
+                }
+            }
+        }
 
         // 进度：左边已播放，右边剩余（负号），中间粗进度条
         val dur = MusicPlayer.durationMs
@@ -188,10 +215,10 @@ class SongCardModule : Module() {
         val barH = 5f * k
         val barX = b.x + pad + labelW + 9f * k
         val bar = LayoutBounds(barX, rowCy - barH / 2f, b.right - pad - labelW - 9f * k - barX, barH)
-        ctx.drawShape(bar, ShapeStyle(Color(1f, 1f, 1f, 0.18f), barH / 2f))
+        ctx.drawShape(bar, ShapeStyle(Theme.overlay(0.18f), barH / 2f))
         if (dur > 0) {
             val f = (pos.toDouble() / dur).coerceIn(0.0, 1.0).toFloat()
-            ctx.drawShape(LayoutBounds(bar.x, bar.y, max(barH, bar.width * f), bar.height), ShapeStyle(Color(1f, 1f, 1f, 0.92f), barH / 2f))
+            ctx.drawShape(LayoutBounds(bar.x, bar.y, max(barH, bar.width * f), bar.height), ShapeStyle(Theme.TEXT_PRIMARY, barH / 2f))
         }
     }
 

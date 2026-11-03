@@ -59,19 +59,8 @@ internal class Sidebar(private val screen: MusicScreen) {
 
     private val MENU_ITEM_H = 30f
 
-    /** 音源菜单的液态玻璃：比侧栏更暗、更磨砂，保证上面的字看得清 */
-    private val MENU_GLASS = GlassStyle(
-        radius = 14f,
-        tint = Color(0.05f, 0.05f, 0.07f, 0.55f),
-        maxLuma = 0.22f,
-        saturation = 1.4f,
-        frost = 0.9f,
-        refraction = 12f,
-        bevel = 12f,
-        dispersion = 0.3f,
-        highlight = 1.1f,
-        shadow = ShadowStyle(Color(0f, 0f, 0f, 0.30f), 18f, Vec2(0f, -4f)),
-    )
+    /** 音源菜单的液态玻璃：比侧栏更实、更磨砂，保证上面的字看得清；具体配色跟着主题走 */
+    private val MENU_GLASS: GlassStyle get() = Theme.GLASS_MENU
 
     /** 底部账号栏的音源菜单是否展开 */
     var menuOpen = false
@@ -270,7 +259,10 @@ internal class Sidebar(private val screen: MusicScreen) {
             }
             val liked = i == firstOwned && MusicSources.selected == MusicSource.NETEASE
             val imported = MusicSources.selected == MusicSource.BILIBILI && BiliSource.importedKey(p.id) != null
-            ui.icon(if (liked) "♥" else "≡", row.x + 18f, row.y + 14f, 12f, if (liked || active) RED else Theme.TEXT_SECONDARY)
+            // 歌单封面的小缩略图；"我喜欢的音乐"和还没加载出封面的照旧画图标
+            val thumb = if (liked || p.coverUrl.isEmpty()) null else CoverCache.playlistRounded(p, 0.25f)
+            if (thumb != null) ui.drawCover(LayoutBounds(row.x + 9f, row.y + 5f, 18f, 18f), thumb)
+            else ui.icon(if (liked) "♥" else "≡", row.x + 18f, row.y + 14f, 12f, if (liked || active) RED else Theme.TEXT_SECONDARY)
             if (imported && ui.hover(row)) {
                 val del = LayoutBounds(row.right - 24f, row.y + (row.height - 18f) / 2f, 18f, 18f)
                 val gw = ui.width("×", 12f)
@@ -467,7 +459,7 @@ internal class Sidebar(private val screen: MusicScreen) {
         val r = kotlin.math.min(14f, menu.height / 2f)
         val edge = kotlin.math.min(12f, kotlin.math.min(menu.width, menu.height) / 3f)
         ctx.drawGlass(menu, MENU_GLASS.copy(radius = r, bevel = edge, refraction = edge))
-        ctx.drawShape(menu, ShapeStyle(Color(0f, 0f, 0f, 0f), r, 1f, Color(1f, 1f, 1f, 0.10f)))
+        ctx.drawShape(menu, ShapeStyle(Color(0f, 0f, 0f, 0f), r, 1f, Theme.HAIRLINE))
 
         // 内容在菜单长到一半以后逐行淡入、从下往上浮起；收起时一起淡出
         val content = ((sh - 0.35f) / 0.5f).coerceIn(0f, 1f)
@@ -503,7 +495,7 @@ internal class Sidebar(private val screen: MusicScreen) {
         if (canLogOut) {
             val (row0, a) = rowAt(y + 9f)
             ctx.pushOpacity(a)
-            ctx.drawShape(LayoutBounds(full.x + 12f, row0.y - 5f, full.width - 24f, 1f), ShapeStyle(Color(1f, 1f, 1f, 0.08f), 0.5f))
+            ctx.drawShape(LayoutBounds(full.x + 12f, row0.y - 5f, full.width - 24f, 1f), ShapeStyle(Theme.SEPARATOR, 0.5f))
             if (interactive && ui.hover(row0)) ui.card(row0, Theme.CARD_HOVER, 8f)
             ui.text(I18n.text("Log out"), row0.x + 24f, row0.y + 9f, 12f, Theme.TEXT_TERTIARY, Theme.FONT_MEDIUM)
             ctx.popOpacity()
@@ -563,7 +555,7 @@ internal class Sidebar(private val screen: MusicScreen) {
         }
         if (pillAlpha > 0.01f && pillBot - pillTop > 2f) {
             ui.ctx.pushOpacity(pillAlpha)
-            ui.ctx.drawGlass(LayoutBounds(side.x + 6f, pillTop, side.width - 12f, pillBot - pillTop), Theme.GLASS_SELECTION)
+            ui.card(LayoutBounds(side.x + 6f, pillTop, side.width - 12f, pillBot - pillTop), Theme.SELECTION, 12f)
             ui.ctx.popOpacity()
         }
     }

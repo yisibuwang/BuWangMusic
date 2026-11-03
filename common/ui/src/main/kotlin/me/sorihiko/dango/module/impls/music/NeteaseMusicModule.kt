@@ -3,6 +3,9 @@ package me.sorihiko.dango.module.impls.music
 import me.sorihiko.dango.DangoMusic
 import me.sorihiko.dango.event.EventHandler
 import me.sorihiko.dango.events.TickEvent
+import me.sorihiko.dango.events.HudRenderEvent
+import me.sorihiko.dango.events.WorldRenderEndEvent
+import me.sorihiko.dango.DangoClient
 import me.sorihiko.dango.i18n.I18n
 import me.sorihiko.dango.lyrics.Lyrics
 import me.sorihiko.dango.module.Category
@@ -13,7 +16,15 @@ import me.sorihiko.dango.module.values.FloatValue
 import me.sorihiko.dango.module.values.IntValue
 import me.sorihiko.dango.module.values.ModuleValue
 import me.sorihiko.dango.music.EnvironmentAudio
+import me.sorihiko.dango.music.RoomAcoustics
+import me.sorihiko.dango.lyrics.LyricsFeed
+import me.sorihiko.dango.music.AccentTint
 import me.sorihiko.dango.music.MusicPlayer
+import me.sorihiko.dango.music.MusicScreen
+import me.sorihiko.dango.ui.Theme
+import me.sorihiko.dango.ui.ThemeMode
+import me.sorihiko.dango.ui.ThemeTransition
+import me.sorihiko.dango.ui.mixColor
 import me.sorihiko.dango.music.NeteaseApi
 import me.sorihiko.dango.music.MusicSources
 import me.sorihiko.dango.music.MusicSource
@@ -54,6 +65,18 @@ class NeteaseMusicModule : Module() {
         I18n.language = language.value
     }
 
+    @ModuleValue("Theme", "Window material: clear, dark or light")
+    val theme = IntValue(0, 2, 0)
+
+    @ModuleValue("Lyrics follow accent", "Tint lyric lines in the song card and the island with the accent colour")
+    val lyricAccent = BooleanValue(false)
+
+    @ModuleValue("Accent from cover", "Tint highlights with the playing cover's main colour")
+    val accentCover = BooleanValue(true)
+
+    @ModuleValue("Theme by world time", "Light by day, dark at night")
+    val autoTheme = BooleanValue(false)
+
     @ModuleValue("Shuffle", "Play songs in random order")
     private val shuffle = BooleanValue(false)
 
@@ -85,23 +108,17 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
 
-    @ModuleValue("Environment audio", "Music changes with where you are")
+    @ModuleValue("Environment audio", "Echo follows the room you are in (size and materials), muffled underwater")
     private val envAudio = BooleanValue(true)
-
-    @ModuleValue("Underwater", "Muffled while your head is underwater")
-    private val envWater = BooleanValue(true)
-
-    @ModuleValue("Cave echo", "Echo in enclosed places with no sky above")
-    private val envCave = BooleanValue(true)
-
-    @ModuleValue("Indoors", "Slightly muffled, with some room echo, under a roof")
-    private val envIndoor = BooleanValue(true)
 
     @ModuleValue("Rain", "A little quieter in rain and thunder")
     private val envRain = BooleanValue(true)
 
-    @ModuleValue("Effect strength", "How strong the environment effects are")
+    @ModuleValue("Environment audio strength", "How strong the environment effects are")
     private val envStrength = FloatValue(0f, 1f, 1f, 2)
+
+    @ModuleValue("Show sound rays", "Debug: draw the rays used to measure the room, and its numbers")
+    private val envRays = BooleanValue(false)
 
     @ModuleValue("Check for updates", "Look for a newer release on GitHub once per launch and remind you")
     val checkUpdates = BooleanValue(true)
@@ -181,10 +198,138 @@ class NeteaseMusicModule : Module() {
 
     private var tickCount = 0
 
+    /** 调试：把测房间用的射线画在世界里（绿 → 黄 → 橙 → 红 → 紫 = 第几次反弹，灰 = 射出去没碰到东西） */
+    @EventHandler
+    fun onWorldRender(e: WorldRenderEndEvent) {
+        RoomAcoustics.debugRays = enabled && envAudio.get() && envRays.get()
+        if (!RoomAcoustics.debugRays) return
+        val segments = RoomAcoustics.rays
+        if (segments.isEmpty()) return
+        val gfx = DangoClient.gfx
+        gfx.guarded {
+            val world = gfx.world
+            val pen = gfx.text
+            world.begin()
+            fun facing(rx: Double, ry: Double, rz: Double): FloatArray = floatArrayOf(
+                Math.toDegrees(kotlin.math.atan2(-rx, rz)).toFloat(),
+                Math.toDegrees(kotlin.math.atan2(-ry, kotlin.math.sqrt(rx * rx + rz * rz))).toFloat())
+            // 碰到方块的点：一个朝向镜头的小 "+"
+            fun mark(x: Double, y: Double, z: Double, argb: Int) {
+                val rx = x - world.cameraX; val ry = y - world.cameraY; val rz = z - world.cameraZ
+                val f = facing(rx, ry, rz)
+                // 远近看起来差不多大
+                world.push(rx, ry, rz, f[0], f[1], (0.0015 * kotlin.math.sqrt(rx * rx + ry * ry + rz * rz)).toFloat().coerceIn(0.004f, 0.03f))
+                pen.pixelText("+", -pen.pixelWidth("+") / 2f + 0.5f, -4f, argb, false)
+                world.pop()
+            }
+            // 一段线：在线段中点放一块朝向镜头的面，把 "-" 沿线段方向转过去、拉长到线段在这块面上的长度
+            fun line(x1: Double, y1: Double, z1: Double, x2: Double, y2: Double, z2: Double, argb: Int) {
+                val mx = (x1 + x2) / 2 - world.cameraX; val my = (y1 + y2) / 2 - world.cameraY; val mz = (z1 + z2) / 2 - world.cameraZ
+                val dist = kotlin.math.sqrt(mx * mx + my * my + mz * mz)
+                if (dist < 1e-3) return
+                val vx = mx / dist; val vy = my / dist; val vz = mz / dist
+                // 镜头看过去的右方向和下方向
+                val rX = -vz; val rZ = vx
+                val rLen = kotlin.math.sqrt(rX * rX + rZ * rZ).coerceAtLeast(1e-6)
+                val rightX = rX / rLen; val rightZ = rZ / rLen
+                // 上方向 = 右 × 视线
+                val upX = -vy * rightZ; val upY = rightZ * vx - rightX * vz; val upZ = rightX * vy
+                val dx = x2 - x1; val dy = y2 - y1; val dz = z2 - z1
+                val along = dx * rightX + dz * rightZ
+                val across = -(dx * upX + dy * upY + dz * upZ)
+                val length = kotlin.math.sqrt(along * along + across * across)
+                if (length < 1e-3) return
+                val f = facing(mx, my, mz)
+                world.push(mx, my, mz, f[0], f[1], 1f / 16f)
+                pen.push()
+                pen.rotate(Math.toDegrees(kotlin.math.atan2(across, along)).toFloat())
+                // "-" 是 5 像素宽、1 像素高；线粗随距离变一点，远处也看得见
+                pen.scale((length * 16 / 5).toFloat(), (0.4 + dist * 0.02).toFloat().coerceAtMost(1.5f))
+                pen.pixelText("-", -2.5f, -4.5f, argb, false)
+                pen.pop()
+                world.pop()
+            }
+            var i = 0
+            while (i + 6 < segments.size) {
+                val bounce = segments[i + 6].toInt()
+                val color = if (bounce < 0) 0x60A0A0A0 else RAY_COLORS[bounce.coerceAtMost(RAY_COLORS.size - 1)]
+                val x1 = segments[i].toDouble(); val y1 = segments[i + 1].toDouble(); val z1 = segments[i + 2].toDouble()
+                var x2 = segments[i + 3].toDouble(); var y2 = segments[i + 4].toDouble(); var z2 = segments[i + 5].toDouble()
+                if (bounce < 0) {
+                    // 射出去没碰到的只画前 6 格，不然满天都是线
+                    val len = kotlin.math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1))
+                    if (len > 6) { val k = 6 / len; x2 = x1 + (x2 - x1) * k; y2 = y1 + (y2 - y1) * k; z2 = z1 + (z2 - z1) * k }
+                }
+                line(x1, y1, z1, x2, y2, z2, color)
+                if (bounce >= 0) mark(x2, y2, z2, color or 0xFF000000.toInt())
+                i += 7
+            }
+        }
+    }
+
+    @EventHandler
+    fun onHud(e: HudRenderEvent) {
+        if (!RoomAcoustics.debugRays) return
+        val room = RoomAcoustics.room ?: return
+        val lines = listOf(
+            "Room: enclosure %.2f".format(room.enclosure),
+            "Decay %.2fs  early %.0fms".format(room.decaySeconds, room.earlyDelayMs),
+            "Absorption %.2f  pan %+.2f".format(room.absorption, room.pan),
+        )
+        DangoClient.gfx.guarded {
+            val hud = DangoClient.gfx.hud
+            hud.begin()
+            lines.forEachIndexed { n, line -> hud.text(line, 4f, 60f + n * 10f, 0xFFFFFFFF.toInt(), true) }
+            hud.end()
+        }
+    }
+
+    private var coverKey = ""
+    private var coverAt = 0L
+
+    /** 强调色跟着封面走：算好后每 tick 往目标色挪一点，换歌时不会一下子跳过去 */
+    private fun followCover() {
+        val track = MusicPlayer.current
+        val key = track?.key.orEmpty()
+        if (key != coverKey) {
+            coverKey = key
+            coverAt = System.nanoTime()
+        }
+        val target = if (accentCover.get()) AccentTint.track(track) else null
+        val shown = Theme.coverTint
+        Theme.coverTint = when {
+            !accentCover.get() -> null
+            target == null && shown != null && (System.nanoTime() - coverAt) / 1e6 < 1500 -> shown
+            target == null -> null
+            shown == null -> target
+            AccentTint.distance(shown, target) < 0.01f -> target
+            else -> mixColor(shown, target, 0.10f)
+        }
+    }
+
     @EventHandler
     fun onTick(e: TickEvent) {
         // 即使播放器被关闭，也要初始化并保存界面语言。
         applyLanguage()
+        // 跟随世界时间：白天浅色、夜里深色。改的是 theme 值，界面开着时由 MusicScreen 播扩散动画
+        if (autoTheme.get()) {
+            val darken = DangoMusic.instance.platform.skyDarken
+            if (darken != null) {
+                // 两边留一点差：天色在临界点来回抖时不会反复切
+                val night = if (Theme.mode == ThemeMode.DARK) darken >= 5 else darken >= 6
+                val mode = if (night) ThemeMode.DARK else ThemeMode.LIGHT
+                if (mode.ordinal != theme.value) theme.setValue(mode.ordinal)
+            }
+        }
+        // 界面开着时交给 MusicScreen 播扩散动画；关着就先直接套用，让 Song card / 灵动岛也是对的配色
+        if (!MusicScreen.anyOpen && !ThemeTransition.busy) {
+            val mode = ThemeMode.of(theme.value)
+            if (mode != Theme.mode) ThemeTransition.applyImmediately(mode)
+        }
+        followCover()
+        Theme.lyricAccent = lyricAccent.get()
+        // 歌词预取：HUD 和 3D 歌词都从这里取，模块开关不影响
+        LyricsFeed.prefetch()
         MusicSources.selected = MusicSource.values()[musicSource.value]
         DangoMusic.instance.platform.syncKeyBindings(keyBindings)
         UpdateChecker.tick(checkUpdates.get())
@@ -200,12 +345,11 @@ class NeteaseMusicModule : Module() {
 
         // 环境音效：设置和玩家周围的环境交给解码线程
         EnvironmentAudio.enabled = envAudio.get()
-        EnvironmentAudio.water = envWater.get()
-        EnvironmentAudio.cave = envCave.get()
-        EnvironmentAudio.indoor = envIndoor.get()
         EnvironmentAudio.rain = envRain.get()
         EnvironmentAudio.strength = envStrength.value
-        EnvironmentAudio.update(try { DangoMusic.instance.platform.environment } catch (_: Exception) { null })
+        // 房间回声：只在放歌时测（要发射线读方块）
+        RoomAcoustics.tick(DangoMusic.instance.platform, envAudio.get() && MusicPlayer.state == MusicPlayer.State.PLAYING)
+        EnvironmentAudio.update(try { DangoMusic.instance.platform.environment } catch (_: Exception) { null }, RoomAcoustics.room)
 
         // 打开键额外支持主菜单；其他播放快捷键仍只在世界内响应。
         val platform = DangoMusic.instance.platform
@@ -223,3 +367,6 @@ class NeteaseMusicModule : Module() {
         }
     }
 }
+
+/** 调试射线的颜色：第 0~4 次反弹 */
+private val RAY_COLORS = intArrayOf(0xC055FF55.toInt(), 0xC0FFFF55.toInt(), 0xC0FFAA33.toInt(), 0xC0FF5555.toInt(), 0xC0CC66FF.toInt())

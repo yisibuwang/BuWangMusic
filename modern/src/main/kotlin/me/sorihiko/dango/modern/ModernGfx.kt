@@ -11,12 +11,15 @@ import me.sorihiko.dango.gfx.Texture
 import me.sorihiko.dango.gfx.Textures
 import me.sorihiko.dango.gfx.WorldView
 import me.sorihiko.dango.lyrics.DeepGlow
+import me.sorihiko.dango.shader.impls.QuadShader
 import me.sorihiko.dango.ui.GlassRenderContext
+import me.sorihiko.dango.ui.glass.GlassTarget
 
 import net.minecraft.client.Minecraft
 import org.joml.Matrix4f
 import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL13
+import org.lwjgl.opengl.GL30
 
 import java.awt.image.BufferedImage
 import kotlin.math.max
@@ -29,6 +32,72 @@ object ModernGfx : Gfx {
     override val textures: Textures = ModernTextures
 
     override fun newCanvas(): GuiCanvas = GlassRenderContext()
+
+    override fun captureScreen(): Texture? {
+        val window = mc.window
+        val w = window.width
+        val h = window.height
+        if (w <= 0 || h <= 0) return null
+        val state = GlState()
+        val sourceFbo = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING)
+        var copied = -1
+        return try {
+            Imm.flush()
+            copied = GlassTarget.createTexture(w, h)
+            // 读源是当前绑定的帧缓冲（正常就是屏幕；某些光影包会换成自己的 FBO）
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, sourceFbo)
+            Gl.activeTexture(GL13.GL_TEXTURE0)
+            Gl.bindTexture(copied)
+            GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h)
+            // 拷贝出来的纹理第 0 行是屏幕底部，而界面贴图按"第 0 行是顶部"采样，所以先翻一次
+            val id = flipVertical(copied, w, h)
+            ModernTexture({ id }, { Gl.deleteTexture(id) })
+        } catch (t: Throwable) {
+            null
+        } finally {
+            if (copied != -1) Gl.deleteTexture(copied)
+            state.restore()
+        }
+    }
+
+    /** 把 [source] 上下翻过来画进一张新贴图，返回新贴图的 id */
+    private fun flipVertical(source: Int, w: Int, h: Int): Int {
+        val target = GlassTarget.createTexture(w, h)
+        val fbo = GL30.glGenFramebuffers()
+        var ok = false
+        try {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo)
+            GL30.glFramebufferTexture2D(
+                GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, target, 0
+            )
+            GL11.glViewport(0, 0, w, h)
+            Gl.blend(false)
+            Gl.depthTest(false)
+            Gl.cull(false)
+            Gl.colorMask(true, true, true, true)
+            GL11.glClearColor(0f, 0f, 0f, 1f)
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT)
+
+            val quad = ModernGl.shaderManager.get<QuadShader>()
+            quad.bind()
+            quad.setup()
+            Gl.activeTexture(GL13.GL_TEXTURE0)
+            Gl.bindTexture(source)
+            Imm.begin()
+            Imm.tex(0f, 1f); Imm.vertex(-1f, -1f)
+            Imm.tex(1f, 1f); Imm.vertex(1f, -1f)
+            Imm.tex(1f, 0f); Imm.vertex(1f, 1f)
+            Imm.tex(0f, 0f); Imm.vertex(-1f, 1f)
+            Imm.end()
+            quad.unbind()
+            ok = true
+        } finally {
+            GL30.glDeleteFramebuffers(fbo)
+            // 中途抛异常就把这张半成品贴图删掉，不然每次切主题漏一个纹理
+            if (!ok) Gl.deleteTexture(target)
+        }
+        return target
+    }
 
     override fun uiTextWidth(text: String, size: Float, font: String): Float =
         ModernGl.font(font).getTextWidth(text, size)
@@ -177,6 +246,8 @@ object ModernText : TextCanvas {
     }
 
     override fun color(r: Float, g: Float, b: Float, a: Float) = Fixed.color(r, g, b, a)
+
+    override fun lyricFont(file: java.io.File?) = CjkFont.setLyricFont(file)
 
     override fun smoothText(text: String, x: Float, baseline: Float, size: Float, style: Int) =
         CjkFont.draw(text, x, baseline, size, style)

@@ -20,6 +20,13 @@ interface Gfx {
     /** 新建一块液态玻璃画布（播放器窗口、Song card、灵动岛各用一块） */
     fun newCanvas(): GuiCanvas
 
+    /**
+     * 把这一帧的画面拷成一张贴图（深色 / 浅色切换时用来留一份旧界面）。
+     * 必须在渲染线程、且这一帧还没结束的时候调用；用完交给 [textures] 删掉。
+     * 平台层做不到就返回 null，切换退化成配色渐变。
+     */
+    fun captureScreen(): Texture? = null
+
     /** 菜单字体（Inter 等，按文件名）在 [size] 字号下的宽度 */
     fun uiTextWidth(text: String, size: Float, font: String): Float
 
@@ -51,6 +58,8 @@ object CjkStyle {
     const val PLAIN = 0
     const val BOLD = 1
     const val DISPLAY = 2
+    /** 歌词（玩家选的字体，没有的字退回普通字体） */
+    const val LYRIC = 3
 }
 
 /** 一段要画的平滑字体文字。centered = (x, y) 是可见部分的中心；否则 y 是基线 */
@@ -105,6 +114,9 @@ interface TextCanvas {
 
     /** 平滑字体的颜色 */
     fun color(r: Float, g: Float, b: Float, a: Float)
+
+    /** 歌词用的字体文件（null = 默认）；只在渲染线程调用 */
+    fun lyricFont(file: java.io.File?) {}
 
     /** 平滑字体：y 是基线 */
     fun smoothText(text: String, x: Float, baseline: Float, size: Float, style: Int)

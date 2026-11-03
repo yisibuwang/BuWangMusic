@@ -72,8 +72,8 @@ internal class QueueSheet(private val screen: MusicScreen) {
         ctx.pushClip(win)
         ctx.pushOpacity((t * 1.3f).coerceIn(0f, 1f))
         // 不透明的深色底：下面页面的文字不会透过亚克力叠在列表上
-        ctx.drawShape(box, ShapeStyle(Color(0.075f, 0.080f, 0.098f, 0.985f), 14f))
-        ctx.drawShape(box, ShapeStyle(Color(0f, 0f, 0f, 0f), 14f, 1f, Color(1f, 1f, 1f, 0.075f)))
+        ctx.drawShape(box, ShapeStyle(Theme.PANEL, 14f))
+        ctx.drawShape(box, ShapeStyle(Color(0f, 0f, 0f, 0f), 14f, 1f, Theme.HAIRLINE))
         ui.card(LayoutBounds(box.x + 16f, box.y + 42f, box.width - 32f, 1f), Theme.SEPARATOR, 0f)
 
         val title = if (ListenParty.inRoom) "一起听歌 · ${ListenParty.roomCode}" else "播放列表"

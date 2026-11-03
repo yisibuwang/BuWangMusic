@@ -14,8 +14,8 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 
-/** 网易云红（和菜单里 Music 分类同色） */
-internal val RED = Color.fromHex("#FF375F")
+/** 高亮色（默认网易云红，跟随封面时换成封面主色） */
+internal val RED: Color get() = Theme.HIGHLIGHT
 
 /** 一块可点击区域和点下去要做的事 */
 internal typealias Hit = Pair<LayoutBounds, () -> Unit>
@@ -147,7 +147,7 @@ internal class Ui {
         val anim = key?.let { switchAnim.getOrPut(it) { Spring(380f, 24f, target) } }
         val p = anim?.tick(target) ?: target
         val pc = p.coerceIn(0f, 1f)
-        val off = Color(1f, 1f, 1f, if (hover(b)) 0.24f else 0.16f)
+        val off = Theme.overlay(if (hover(b)) 0.24f else 0.16f)
         val fill = Color(off.r + (RED.r - off.r) * pc, off.g + (RED.g - off.g) * pc, off.b + (RED.b - off.b) * pc, off.a + (RED.a - off.a) * pc)
         ctx.drawShape(b, ShapeStyle(fill, b.height / 2f))
         val k = b.height - 4f

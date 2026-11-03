@@ -127,8 +127,8 @@ internal class PartsSheet(private val screen: MusicScreen) {
         ctx.pushClip(win)
         ctx.pushOpacity((k * 1.35f).coerceIn(0f, 1f))
         // 不透明深色底，避免下面的列表文字透上来
-        ctx.drawShape(panel, ShapeStyle(Color(0.075f, 0.080f, 0.098f, 0.985f), 14f))
-        ctx.drawShape(panel, ShapeStyle(Color(0f, 0f, 0f, 0f), 14f, 1f, Color(1f, 1f, 1f, 0.075f)))
+        ctx.drawShape(panel, ShapeStyle(Theme.PANEL, 14f))
+        ctx.drawShape(panel, ShapeStyle(Color(0f, 0f, 0f, 0f), 14f, 1f, Theme.HAIRLINE))
 
         ui.text(ui.trim(track.name, w - 72f, 13f), panel.x + 16f, panel.y + 14f, 13f, Theme.TEXT_PRIMARY, Theme.FONT_MEDIUM)
         val sub = if (loading) I18n.text("Reading parts…") else I18n.format("Parts · %d", parts.size)
@@ -156,7 +156,7 @@ internal class PartsSheet(private val screen: MusicScreen) {
             val row = LayoutBounds(listRect.x, listRect.y + r * rowH, listRect.width, rowH - 3f)
             val current = playing != null && playing.key == p.key
             when {
-                current -> ctx.drawGlass(row, Theme.GLASS_SELECTION)
+                current -> ui.card(row, Theme.SELECTION, 8f)
                 ui.hover(row) -> ui.card(row, Theme.CARD_HOVER, 8f)
             }
             ui.text(if (current) "♫" else (i + 1).toString(), row.x + 8f, row.y + 8f, 10f, if (current) RED else Theme.TEXT_TERTIARY)

@@ -15,6 +15,7 @@ import me.sorihiko.dango.module.ModuleMeta
 import me.sorihiko.dango.module.values.BooleanValue
 import me.sorihiko.dango.module.values.FloatValue
 import me.sorihiko.dango.module.values.ModuleValue
+import me.sorihiko.dango.lyrics.LyricsFeed
 import me.sorihiko.dango.music.CoverCache
 import me.sorihiko.dango.music.MusicPlayer
 import me.sorihiko.dango.ui.LayoutBounds
@@ -45,8 +46,14 @@ class DynamicIslandModule : Module() {
     @ModuleValue("Liquid glass", "Liquid glass background; off is a solid black pill")
     private val glass = BooleanValue(true)
 
-    @ModuleValue("Music", "Show what the built-in player is playing")
+    @ModuleValue("Show now playing", "Show what the built-in player is playing")
     private val showMusic = BooleanValue(true)
+
+    @ModuleValue("Lyrics", "Show the lyric line instead of the cover when playing")
+    private val islandLyrics = BooleanValue(false)
+
+    @ModuleValue("Lyrics translation", "Show the translated line under the lyric when the song has one")
+    private val islandLyricsTrans = BooleanValue(false)
 
     @ModuleValue("Song notify", "Expand to show the song on track change or pause")
     private val songNotify = BooleanValue(true)
@@ -66,6 +73,13 @@ class DynamicIslandModule : Module() {
     private var temp: Kind? = null
     private var tempUntil = 0L
     private var contentAlpha = 0f
+
+    // 歌词态：当前句、上一句和换句时刻（向上滑动动画用）
+    private var lyric = ""
+    private var lyricSub = ""
+    private var lyricPrev = ""
+    private var lyricPrevSub = ""
+    private var lyricAt = 0L
 
     // 弹簧动画（单位：逻辑像素）
     private var w = 0f
@@ -162,7 +176,10 @@ class DynamicIslandModule : Module() {
         }
         Kind.IDLE -> if (musicIdle()) {
             val t = MusicPlayer.current!!
-            (9f + 22f + 9f + width(t.name, 12f, Theme.FONT_SEMIBOLD).coerceAtMost(170f) + 12f + 14f + 12f) to 32f
+            if (islandLyrics.get() && lyric.isNotEmpty()) {
+                lyricPillWidth() to (if (lyricSub.isEmpty()) 34f else 46f)
+            }
+            else (9f + 22f + 9f + width(t.name, 12f, Theme.FONT_SEMIBOLD).coerceAtMost(170f) + 12f + 14f + 12f) to 32f
         } else {
             (14f + 6f + 8f + idleWidth() + 16f) to 32f
         }
@@ -199,6 +216,7 @@ class DynamicIslandModule : Module() {
         lastNanos = now
 
         watchMusic()
+        watchLyric(now)
         watchUpdate()
         val want = desired()
 
@@ -242,7 +260,7 @@ class DynamicIslandModule : Module() {
                 ctx.drawShape(
                     pill,
                     ShapeStyle(
-                        Color(0.02f, 0.02f, 0.03f, 0.9f), r, 1f, Color(1f, 1f, 1f, 0.07f),
+                        Theme.PANEL, r, 1f, Theme.HAIRLINE,
                         ShadowStyle(Color(0f, 0f, 0f, 0.18f), 8f, Vec2(0f, -2f)),
                     )
                 )
@@ -259,7 +277,9 @@ class DynamicIslandModule : Module() {
             mt.clip = pill
             ctx.pushOpacity(contentAlpha)
             when (shown) {
-                Kind.IDLE -> if (musicIdle()) drawMusicIdle(ctx, cb) else drawIdle(ctx, cb)
+                Kind.IDLE -> if (musicIdle()) {
+                    if (islandLyrics.get() && lyric.isNotEmpty()) drawLyricIdle(ctx, cb) else drawMusicIdle(ctx, cb)
+                } else drawIdle(ctx, cb)
                 Kind.SONG -> drawSong(ctx, cb)
                 Kind.UPDATE -> drawUpdate(ctx, cb)
             }
@@ -285,6 +305,81 @@ class DynamicIslandModule : Module() {
             val font = if (i == 0) Theme.FONT_SEMIBOLD else Theme.FONT_REGULAR
             text(ctx, s, x, ty, 12f, c, font)
             x += width(s, 12f, font)
+        }
+    }
+
+    private fun lyricWidth(text: String, size: Float): Float =
+        width(text, size, Theme.FONT_SEMIBOLD).coerceIn(60f, 420f)
+
+    /** 每帧对一次当前歌词；换句时把旧句留下来，交给滑动动画 */
+    private fun watchLyric(now: Long) {
+        val cur = if (islandLyrics.get() && musicIdle()) LyricsFeed.current() else null
+        // 前奏、间奏里没有当前句：留一个小音符占位，别整条弹回「封面 + 歌名」再弹回来
+        val text = when {
+            !islandLyrics.get() || !musicIdle() -> ""
+            cur != null -> cur.text
+            else -> "♪"
+        }
+        val sub = if (islandLyricsTrans.get()) cur?.translation.orEmpty() else ""
+        if (text == lyric && sub == lyricSub) return
+        lyricPrev = lyric
+        lyricPrevSub = lyricSub
+        lyric = text
+        lyricSub = sub
+        lyricAt = now
+    }
+
+    private fun lyricPillWidth(): Float {
+        val wide = max(lyricWidth(lyric, 13f), if (lyricSub.isEmpty()) 0f else lyricWidth(lyricSub, 10.5f))
+        return wide + 56f
+    }
+
+    /** 整条胶囊只显示歌词：换句时上一句向上滑出、新的一句从下面滑上来；有翻译时下面再压一行 */
+    private fun drawLyricIdle(ctx: GuiCanvas, b: LayoutBounds) {
+        val size = 13f
+        val subSize = 10.5f
+        val two = lyricSub.isNotEmpty()
+        val cy = b.y + b.height / 2f
+        val p = if (lyricAt == 0L) 1f else ((System.nanoTime() - lyricAt) / 2.2e8).coerceIn(0.0, 1.0).toFloat()
+        val ease = 1f - (1f - p) * (1f - p) * (1f - p)
+        val rise = b.height - 8f
+        val paused = MusicPlayer.state != MusicPlayer.State.PLAYING
+
+        // 胶囊两头是半圆：文字左右各留 18，暂停符号再占 10，这样整块才居中
+        val left = b.x + 20f
+        val right = b.right - 20f - if (paused) 10f else 0f
+        val mid = (left + right) / 2f
+        val room = right - left
+
+        fun line(y: Float, value: String, s: Float, font: String, color: Color, alpha: Float) {
+            if (value.isEmpty() || alpha <= 0.01f) return
+            val t = trim(value, room, s, font)
+            val w = width(t, s, font)
+            if (alpha < 1f) ctx.pushOpacity(alpha)
+            text(ctx, t, mid - w / 2f, y, s, color, font)
+            if (alpha < 1f) ctx.popOpacity()
+        }
+
+        val mainY = if (two) cy - 11f else cy - size * 0.39f
+        val subY = cy + 3.5f
+        val ink = if (Theme.lyricAccent) Theme.LYRIC else Theme.TEXT_PRIMARY
+        val inkPrev = if (Theme.lyricAccent) Theme.LYRIC else Theme.TEXT_SECONDARY
+        val inkSub = if (Theme.lyricAccent) Theme.LYRIC_SUB else Theme.TEXT_SECONDARY
+        val inkPrevSub = if (Theme.lyricAccent) Theme.LYRIC_SUB else Theme.TEXT_TERTIARY
+        if (p < 1f && lyricPrev.isNotEmpty()) {
+            line(mainY - rise * ease, lyricPrev, size, Theme.FONT_MEDIUM, inkPrev, 1f - ease)
+            if (lyricPrevSub.isNotEmpty()) {
+                line(subY - rise * ease, lyricPrevSub, subSize, Theme.FONT_REGULAR, inkPrevSub, 1f - ease)
+            }
+        }
+        line(mainY + rise * (1f - ease), lyric, size, Theme.FONT_SEMIBOLD, ink, 1f)
+        if (two) line(subY + rise * (1f - ease), lyricSub, subSize, Theme.FONT_REGULAR, inkSub, 1f)
+
+        if (paused) {
+            // 暂停时右边留一个小暂停符号，免得看起来像卡住了
+            val gx = b.right - 22f
+            ctx.drawShape(LayoutBounds(gx, cy - 3.2f, 1.8f, 6.4f), ShapeStyle(Theme.TEXT_SECONDARY, 0.9f))
+            ctx.drawShape(LayoutBounds(gx + 3.6f, cy - 3.2f, 1.8f, 6.4f), ShapeStyle(Theme.TEXT_SECONDARY, 0.9f))
         }
     }
 

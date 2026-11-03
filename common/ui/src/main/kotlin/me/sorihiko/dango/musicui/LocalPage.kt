@@ -201,7 +201,7 @@ internal class LocalPage(private val screen: MusicScreen) {
                 val row = LayoutBounds(body.x, listTop + (r - frac) * rowH, body.width, rowH - 4f)
                 val isCur = playing != null && playing.key == track.key
                 when {
-                    isCur -> ctx.drawGlass(row, Theme.GLASS_SELECTION)
+                    isCur -> ui.card(row, Theme.SELECTION, 10f)
                     ui.hover(row) -> ui.card(row, Theme.CARD_HOVER, 10f)
                 }
                 if (isCur && MusicPlayer.state == MusicPlayer.State.PLAYING) {

@@ -21,13 +21,18 @@ import me.sorihiko.dango.musicui.SettingsPage
 import me.sorihiko.dango.musicui.Sidebar
 import me.sorihiko.dango.musicui.TracksPage
 import me.sorihiko.dango.musicui.Toasts
+import me.sorihiko.dango.musicui.ThemeSwitch
 import me.sorihiko.dango.musicui.Ui
 import me.sorihiko.dango.platform.Keys
 import me.sorihiko.dango.ui.LayoutBounds
 import me.sorihiko.dango.ui.ShapeStyle
 import me.sorihiko.dango.ui.Theme
+import me.sorihiko.dango.ui.ThemeMode
+import me.sorihiko.dango.ui.ThemeTransition
 import me.sorihiko.dango.utils.Color
 
+import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -75,6 +80,13 @@ class MusicScreen(
     private var closingAt = 0L
     private var closingAlpha = 1f
     private var closed = false
+
+    companion object {
+        /** 播放器界面是否开着（模块 tick 用它决定要不要立刻套用配色，免得打断扩散动画） */
+        @Volatile
+        var anyOpen = false
+            private set
+    }
     private var openKeyHeld = false
     private var lastNanos = 0L
     /** 换页（含换歌单 / 设置换标签 / 新搜索 / 列表↔封面墙）就重新播入场动画 */
@@ -84,9 +96,11 @@ class MusicScreen(
     fun opened() {
         if (closingAt != 0L) return // 关闭期间的窗口尺寸变化不重新播放入场。
         closed = false
+        anyOpen = true
         openKeyHeld = platform.isKeyDown(module.openKey.value)
         if (ScreenState.context == null) ScreenState.context = DangoClient.gfx.newCanvas()
         openedAt = System.currentTimeMillis()
+        ThemeTransition.applyImmediately(wantedMode())
         Library.ensureSource()
         NativeAccounts.refreshProfile(MusicSources.selected)
         if (Library.playlists.isEmpty()) Library.reloadPlaylists()
@@ -102,6 +116,18 @@ class MusicScreen(
         settings.commitEdit()
         settings.stopDrag()
         tracks.scrollbarUp()
+        ThemeTransition.cancel()
+    }
+
+    private fun wantedMode(): ThemeMode = ThemeMode.of(module.theme.value)
+
+    /** 设置里改了外观就请求切换；圆心用鼠标位置，半径取到四角里最远的那个 */
+    private fun syncTheme() {
+        val wanted = wantedMode()
+        if (wanted == Theme.mode) return
+        val dx = max(ui.mx.toFloat(), ui.lw - ui.mx)
+        val dy = max(ui.my.toFloat(), ui.lh - ui.my)
+        ThemeTransition.request(wanted, ui.mx.toFloat(), ui.my.toFloat(), hypot(dx, dy))
     }
 
     private fun opacity(now: Long): Float = if (closingAt == 0L) {
@@ -236,6 +262,7 @@ class MusicScreen(
         val alpha = opacity(System.currentTimeMillis())
         if (closingAt != 0L && alpha <= 0f) {
             closed = true
+            anyOpen = false
             if (platform.isKeyDown(module.openKey.value)) module.consumeOpenKey()
             closeScreen()
             return
@@ -246,6 +273,8 @@ class MusicScreen(
         ui.lh = platform.windowHeight / scale
         ui.mx = (platform.mouseX / scale).toInt()
         ui.my = (platform.mouseY / scale).toInt()
+        ThemeSwitch.beginFrame(ui)
+        syncTheme()
         val ctx = ui.ctx
         // 没有世界时原版不会在播放器下面重画背景。先覆盖上一帧，
         // 否则玻璃会反复采样自身，饱和度不断累积，最终变成亮粉色。
@@ -254,7 +283,7 @@ class MusicScreen(
             try {
                 ctx.drawShape(
                     LayoutBounds(0f, 0f, platform.windowWidth.toFloat(), platform.windowHeight.toFloat()),
-                    ShapeStyle(Color(0.075f, 0.085f, 0.11f, 1f)),
+                    ShapeStyle(Theme.BACKDROP),
                 )
             } finally {
                 ctx.end()
@@ -278,7 +307,7 @@ class MusicScreen(
 
             ctx.pushScale(scale, scale, 1f)
             ctx.pushOpacity(alpha)
-            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Color(0f, 0f, 0f, 0.22f)))
+            ctx.drawShape(LayoutBounds(0f, 0f, ui.lw, ui.lh), ShapeStyle(Theme.SCRIM))
             drawWindow(alpha)
             ctx.popOpacity()
             ctx.popTransform()
@@ -293,6 +322,10 @@ class MusicScreen(
                 ctx.popTransform()
                 ui.mt.flush(scale)
             }
+
+            // 圆外还是旧画面：放在所有东西（含中文、登录框）之后，才盖得住
+            ThemeSwitch.draw(ui)
+            ThemeSwitch.endFrame(ui)
         } finally {
             ctx.end()
         }
@@ -370,6 +403,8 @@ class MusicScreen(
 
     fun mouseClicked(mouseButton: Int) {
         if (closingAt != 0L || closed) return
+        // 主题切换期间界面正在重画，先不接受点击，免得点到的和新配色对不上
+        if (ThemeTransition.busy) return
         val mx = ui.mx
         val my = ui.my
         if (login.visible) {
@@ -410,6 +445,7 @@ class MusicScreen(
     /** 按住鼠标拖动时调用 */
     fun mouseDragged() {
         if (closingAt != 0L || closed) return
+        if (ThemeTransition.busy) return
         if (tracks.sbDragging) {
             tracks.scrollbarDrag((platform.mouseY / ui.scale).toInt())
             return
@@ -427,6 +463,7 @@ class MusicScreen(
     /** 滚轮：[wheel] 正数向上；(x, y) 是滚动时鼠标的窗口像素位置 */
     fun scroll(wheel: Int, x: Int, y: Int) {
         if (closingAt != 0L || closed) return
+        if (ThemeTransition.busy) return
         if (wheel == 0 || login.visible) return
         if (partsSheet.scroll(if (wheel > 0) -1 else 1)) return
         if (queueSheet.scroll(if (wheel > 0) -1 else 1)) return

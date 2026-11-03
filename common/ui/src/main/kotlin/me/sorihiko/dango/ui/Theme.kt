@@ -6,6 +6,9 @@ import me.sorihiko.dango.utils.Color
 /**
  * 液态玻璃主题：颜色、字体、玻璃材质预设，以及常用绘制辅助。
  * 所有尺寸都是"逻辑像素"，整个菜单会按屏幕大小统一缩放。
+ *
+ * 颜色不写死在这里，而是来自当前 [palette]（深色 / 浅色两套，见 [Palette]）；
+ * 换主题就是换 palette，过渡时由 [mixPalette] 逐帧插值。
  */
 object Theme {
     // ---- 布局 ----
@@ -21,61 +24,68 @@ object Theme {
     /** Inter 的大写字高 / 字号，用于文字垂直居中 */
     private const val CAP_HEIGHT = 0.727f
 
-    // ---- 颜色（iOS 深色模式系统色） ----
-    val TEXT_PRIMARY = Color(1f, 1f, 1f, 0.96f)
-    val TEXT_SECONDARY = Color(0.92f, 0.92f, 0.96f, 0.62f)
-    val TEXT_TERTIARY = Color(0.92f, 0.92f, 0.96f, 0.38f)
+    // ---- 当前配色 ----
 
-    val ACCENT = Color.fromHex("#0A84FF")
-    val GREEN = Color.fromHex("#30D158")
-    val SWITCH_OFF = Color(0.47f, 0.47f, 0.50f, 0.36f)
-    val TRACK = Color(0.47f, 0.47f, 0.50f, 0.30f)
+    /** 现在生效的配色；过渡期间每帧都会被替换成插值结果 */
+    @Volatile
+    var palette: Palette = Palette.CLEAR
 
-    val CARD = Color(1f, 1f, 1f, 0.055f)
-    val CARD_HOVER = Color(1f, 1f, 1f, 0.085f)
-    val HAIRLINE = Color(1f, 1f, 1f, 0.08f)
-    val SEPARATOR = Color(1f, 1f, 1f, 0.07f)
+    /** 用户选的模式（切换请求时立刻更新，配色随后追上） */
+    @Volatile
+    var mode: ThemeMode = ThemeMode.CLEAR
 
-    val ICON_DISABLED = Color(0.38f, 0.38f, 0.42f, 1f)
+    // ---- 颜色 ----
+    /** 跟随封面时的强调色；null = 用预设配色 */
+    @Volatile
+    var coverTint: Color? = null
+
+    val TEXT_PRIMARY: Color get() = palette.textPrimary
+    val TEXT_SECONDARY: Color get() = palette.textSecondary
+    val TEXT_TERTIARY: Color get() = palette.textTertiary
+
+    val ACCENT: Color get() = coverTint ?: palette.accent
+    /** 高亮色：进度条、喜欢按钮、选中块描边；跟随封面时一起换 */
+    val HIGHLIGHT: Color get() = coverTint ?: palette.highlight
+
+    /** HUD 歌词是否改用强调色（由设置里的开关写入） */
+    @Volatile
+    var lyricAccent: Boolean = false
+
+    val LYRIC: Color get() = if (lyricAccent) HIGHLIGHT else palette.textPrimary
+    val LYRIC_SUB: Color get() = if (lyricAccent) HIGHLIGHT.copy(a = 0.72f) else palette.textTertiary
+    val GREEN: Color get() = palette.green
+    val SWITCH_OFF: Color get() = palette.switchOff
+    val TRACK: Color get() = palette.track
+
+    val CARD: Color get() = palette.card
+    val CARD_HOVER: Color get() = palette.cardHover
+    val HAIRLINE: Color get() = palette.hairline
+    val SEPARATOR: Color get() = palette.separator
+
+    val ICON_DISABLED: Color get() = palette.iconDisabled
+
+    /** 不透明面板底色（抽屉、提示条、取色器） */
+    val PANEL: Color get() = palette.panel
+
+    /** 菜单没有世界时的兜底底色 */
+    val BACKDROP: Color get() = palette.backdrop
+
+    /** 窗口后面那一层压暗/提亮的遮罩 */
+    val SCRIM: Color get() = palette.scrim
+
+    /** 叠在背景上的"提亮"（深色）或"压暗"（浅色）层 */
+    fun overlay(alpha: Float): Color {
+        val base = palette.overlayBase
+        return Color(base.r, base.g, base.b, alpha)
+    }
 
     // ---- 玻璃材质：越靠前的层越亮 ----
-    val GLASS_WINDOW = GlassStyle(
-        radius = 30f,
-        tint = Color(0.10f, 0.10f, 0.13f, 0.18f),
-        maxLuma = 0.30f,
-        saturation = 1.45f,
-        frost = 0.85f,
-        refraction = 22f,
-        bevel = 26f,
-        dispersion = 0.30f,
-        highlight = 1f,
-        shadow = ShadowStyle(Color(0f, 0f, 0f, 0.30f), 36f, Vec2(0f, -10f)),
-    )
+    val GLASS_WINDOW: GlassStyle get() = palette.window
+    val GLASS_SIDEBAR: GlassStyle get() = palette.sidebar
+    val GLASS_MENU: GlassStyle get() = palette.menu
 
-    val GLASS_SIDEBAR = GlassStyle(
-        radius = 22f,
-        tint = Color(1f, 1f, 1f, 0.05f),
-        maxLuma = 0.36f,
-        saturation = 1.4f,
-        frost = 0.55f,
-        refraction = 16f,
-        bevel = 18f,
-        dispersion = 0.25f,
-        highlight = 0.9f,
-        shadow = ShadowStyle(Color(0f, 0f, 0f, 0.18f), 18f, Vec2(0f, -4f)),
-    )
-
-    val GLASS_SELECTION = GlassStyle(
-        radius = 12f,
-        tint = Color(1f, 1f, 1f, 0.13f),
-        maxLuma = 0.48f,
-        saturation = 1.5f,
-        frost = 0.2f,
-        refraction = 10f,
-        bevel = 12f,
-        dispersion = 0.35f,
-        highlight = 1.1f,
-    )
+    /** 选中块 / 当前播放行的底色 */
+    val SELECTION: Color get() = palette.selection
 
     // ---- 绘制辅助 ----
 

@@ -52,7 +52,7 @@ internal class Toasts {
             val accent = when (item.level) {
                 Notices.WARN -> RED
                 Notices.OK -> Theme.GREEN
-                else -> Color(0.62f, 0.62f, 0.68f, 1f)
+                else -> Theme.TEXT_SECONDARY
             }
             val glyph = when (item.level) {
                 Notices.WARN -> "!"
@@ -60,8 +60,8 @@ internal class Toasts {
                 else -> "i"
             }
             ui.ctx.pushOpacity(alpha.coerceIn(0f, 1f))
-            ui.ctx.drawShape(box, ShapeStyle(Color(0.098f, 0.100f, 0.118f, 0.975f), h / 2f))
-            ui.ctx.drawShape(box, ShapeStyle(Color(0f, 0f, 0f, 0f), h / 2f, 1f, Color(1f, 1f, 1f, 0.07f)))
+            ui.ctx.drawShape(box, ShapeStyle(Theme.PANEL, h / 2f))
+            ui.ctx.drawShape(box, ShapeStyle(Color(0f, 0f, 0f, 0f), h / 2f, 1f, Theme.HAIRLINE))
             val dot = 17f
             val dy = box.y + (h - dot) / 2f
             ui.ctx.drawShape(LayoutBounds(box.x + 11f, dy, dot, dot), ShapeStyle(Color(accent.r, accent.g, accent.b, 0.18f), dot / 2f))
