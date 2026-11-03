@@ -28,6 +28,20 @@
   - 本地歌也能一起听：房间里放本地歌时，房主把文件按实时速度转给其他成员（服务端只转发不解码，250 ms 一片、单片 ≤ 8 KB）；房主可选 **共享音质**（原始 / 128 / 96 / 64 kbps），界面按当前人数提示大约占用的上传带宽
   - B 站曲目不中转：每个成员用自己的账号各自取流
 
+## 截图
+
+**外观主题**
+
+| 透明 | 深色 | 浅色 |
+| --- | --- | --- |
+| <img src="docs/screenshots/default-color.png" width="420"> | <img src="docs/screenshots/dark-color.png" width="420"> | <img src="docs/screenshots/light-color.png" width="420"> |
+
+**HUD 歌词**
+
+| 透明 | 深色 | 浅色 |
+| --- | --- | --- |
+| <img src="docs/screenshots/default-hud.png" width="420"> | <img src="docs/screenshots/dark-hud.png" width="420"> | <img src="docs/screenshots/light-hud.png" width="420"> |
+
 ## 安装
 
 把对应 Minecraft 版本、对应加载器的 jar 放进 `mods/`；一起听歌要求服务端和客户端装同一个 jar。
