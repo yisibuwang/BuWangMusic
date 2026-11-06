@@ -9,9 +9,9 @@ del /q dist\*.jar 2>nul
 rem 只收集当前版本号的产物（旧版本的构建结果留在各自的 build\libs）
 for /f "tokens=2 delims==" %%v in ('findstr /b "version=" version.properties') do set "VER=%%v"
 
-rem 1.20.1 / 1.21.1 / 1.21.11（Fabric / Forge / NeoForge）需要 JDK 21
+rem 1.20.1 / 1.21.1 / 1.21.10 / 1.21.11（Fabric / Forge / NeoForge）需要 JDK 21
 if not defined DANGO_JDK21 set "DANGO_JDK21=C:\Program Files\Java\jdk-21"
-echo === 1.20.1 / 1.21.1 / 1.21.11 (Fabric / Forge / NeoForge) ===
+echo === 1.20.1 / 1.21.1 / 1.21.10 / 1.21.11 (Fabric / Forge / NeoForge) ===
 pushd modern
 call gradlew.bat "-Dorg.gradle.java.home=%DANGO_JDK21%" build
 if errorlevel 1 (

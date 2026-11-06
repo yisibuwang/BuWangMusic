@@ -4,7 +4,7 @@
 
 <p align="center"><em>Minecraft 里的音乐播放器，基于 DangoMusic 修改并添加了一些功能</em></p>
 
-当前版本 **v1.3.0**，支持 Minecraft **1.20.1 / 1.21.1 / 1.21.11 / 26.1.2 / 26.2 / 26.3**，每个版本都有 Fabric 与 Forge / NeoForge 两个加载器的产物。
+当前版本 **v1.4.0**，支持 Minecraft **1.20.1 / 1.21.1 / 1.21.10 / 1.21.11 / 26.1.2 / 26.2 / 26.3**，每个版本都有 Fabric 与 Forge / NeoForge 两个加载器的产物。
 
 
 本模组基于 [DangoMusic](https://github.com/Sorihiko/DangoMusic) 修改，播放器界面、3D 歌词、歌源登录、歌单和搜索都沿用上游；主要重写了「一起听歌」的同步层，按曾经用过的 [AllMusic](https://github.com/Coloryr/AllMusic) 模组的思路把权威状态放到服务端，不再依赖 Firebase 之类的第三方服务。仅用于和朋友联机时自用，所以有些看起来没必要的功能实际上是以自己朋友联机时的使用习惯修改的
@@ -50,6 +50,7 @@
 | --------- | ------------------------------------------------------------- | --------------------------------------------- |
 | 1.20.1    | `BuWangMusic-<版本>+1.20.1-fabric.jar`                      | Forge 47.x：`…+1.20.1-forge.jar`           |
 | 1.21.1    | `BuWangMusic-<版本>+1.21.1-fabric.jar`                      | NeoForge 21.1.x：`…+1.21.1-neoforge.jar`   |
+| 1.21.10   | `BuWangMusic-<版本>+1.21.10-fabric.jar`                     | NeoForge 21.10.x：`…+1.21.10-neoforge.jar` |
 | 1.21.11   | `BuWangMusic-<版本>+1.21.11-fabric.jar`                     | NeoForge 21.11.x：`…+1.21.11-neoforge.jar` |
 | 26.1.2    | `BuWangMusic-<版本>+26.1.2-fabric.jar`                      | NeoForge 26.1.2：`…+26.1.2-neoforge.jar`   |
 | 26.2      | `BuWangMusic-<版本>+26.2-fabric.jar`                        | NeoForge 26.2：`…+26.2-neoforge.jar`       |
@@ -67,13 +68,13 @@ max-bitrate=0            # 允许的最高中转码率（kbps），0 = 不限制
 
 ## 构建
 
-`modern/`（1.20.1 / 1.21.1 / 1.21.11）需要 JDK 21，`modern26/`（26.1.2 / 26.2 / 26.3）需要 JDK 25 与 Gradle 9.7+：
+`modern/`（1.20.1 / 1.21.1 / 1.21.10 / 1.21.11）需要 JDK 21，`modern26/`（26.1.2 / 26.2 / 26.3）需要 JDK 25 与 Gradle 9.7+：
 
 ```bash
 cd modern
 ./gradlew :1.20.1-fabric:build :1.20.1-forge:build \
           :1.21.1-fabric:build :1.21.1-neoforge:build \
-          :1.21.11-fabric:build :1.21.11-neoforge:build
+          :1.21.10-fabric:build :1.21.10-neoforge:build :1.21.11-fabric:build :1.21.11-neoforge:build
 
 cd ../modern26
 gradle :26.1.2-fabric:build :26.1.2-neoforge:build \
@@ -81,14 +82,14 @@ gradle :26.1.2-fabric:build :26.1.2-neoforge:build \
        :26.3-fabric:build   :26.3-neoforge:build
 ```
 
-产物在各 `versions/<目标>/build/libs/` 下。仓库根目录的 `build-all.bat` 会按上面的顺序构建全部 12 个目标，只把当前版本号的 `BuWangMusic-*.jar` 收进 `dist/`，并重算 `dist/SHA256SUMS.txt`（1.8.9 的 `legacy/` 不再构建）。
+产物在各 `versions/<目标>/build/libs/` 下。仓库根目录的 `build-all.bat` 会按上面的顺序构建全部 14 个目标，只把当前版本号的 `BuWangMusic-*.jar` 收进 `dist/`，并重算 `dist/SHA256SUMS.txt`（1.8.9 的 `legacy/` 不再构建）。
 
 ## 目录
 
 ```
 common/core     与 Minecraft 无关的核心：播放器、音源、同步协议、界面无关逻辑
 common/ui       界面绘制（Glass UI、3D 歌词、播放器页面）
-modern/         Minecraft 1.20.1 / 1.21.1 / 1.21.11 的实现，按 versions/<目标> 分包
+modern/         Minecraft 1.20.1 / 1.21.1 / 1.21.10 / 1.21.11 的实现，按 versions/<目标> 分包
   src/main     所有现代版本共用（含一起听歌服务端 TogetherServer）
   src/mc<版本>  各版本 Minecraft 相关代码
 modern26/       Minecraft 26.x 的实现，结构同上
