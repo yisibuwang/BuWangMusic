@@ -1,6 +1,7 @@
 package me.sorihiko.dango.module.impls.music
 
 import me.sorihiko.dango.DangoMusic
+import me.sorihiko.dango.DangoLogger
 import me.sorihiko.dango.event.EventHandler
 import me.sorihiko.dango.events.TickEvent
 import me.sorihiko.dango.events.HudRenderEvent
@@ -19,6 +20,7 @@ import me.sorihiko.dango.music.EnvironmentAudio
 import me.sorihiko.dango.music.RoomAcoustics
 import me.sorihiko.dango.lyrics.LyricsFeed
 import me.sorihiko.dango.music.AccentTint
+import me.sorihiko.dango.music.ListeningStats
 import me.sorihiko.dango.music.MusicPlayer
 import me.sorihiko.dango.music.MusicScreen
 import me.sorihiko.dango.ui.Theme
@@ -53,6 +55,36 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Volume", "Playback volume")
     private val volume = FloatValue(0f, 1f, 0.2f, 2)
 
+    @ModuleValue("Audio output", "Where the music plays through")
+    // 0 自动（安卓用游戏的 OpenAL，电脑用 Java Sound），1 Java Sound，2 游戏的 OpenAL
+    private val audioOutput = IntValue(0, 2, 0)
+
+    // 播放器窗口的位置和大小：占屏幕的比例（换分辨率 / GUI 缩放也不会跑到屏幕外）；宽为 0 = 默认大小。
+    // 拖窗口边缘时改，设置页里不显示
+    @ModuleValue("Window X", "")
+    private val windowX = FloatValue(0f, 1f, 0f, 4)
+    @ModuleValue("Window Y", "")
+    private val windowY = FloatValue(0f, 1f, 0f, 4)
+    @ModuleValue("Window width", "")
+    private val windowW = FloatValue(0f, 1f, 0f, 4)
+    @ModuleValue("Window height", "")
+    private val windowH = FloatValue(0f, 1f, 0f, 4)
+
+    /** 玩家拖过的窗口位置大小 [x, y, 宽, 高]（占屏幕比例）；没拖过是 null */
+    fun windowFrame(): FloatArray? =
+        if (windowW.value <= 0f || windowH.value <= 0f) null
+        else floatArrayOf(windowX.value, windowY.value, windowW.value, windowH.value)
+
+    /** 记下窗口位置大小；null = 恢复默认 */
+    fun setWindowFrame(frame: FloatArray?) {
+        if (frame == null) {
+            windowW.setValue(0f)
+            windowH.setValue(0f)
+            return
+        }
+        windowX.setValue(frame[0]); windowY.setValue(frame[1]); windowW.setValue(frame[2]); windowH.setValue(frame[3])
+    }
+
     @ModuleValue("Language", "Choose the player interface language")
     // -1：尚未根据游戏语言初始化。早期 Fabric 入口处 Options 可能仍为空。
     private val language = IntValue(-1, 1, -1)
@@ -74,8 +106,12 @@ class NeteaseMusicModule : Module() {
     @ModuleValue("Accent from cover", "Tint highlights with the playing cover's main colour")
     val accentCover = BooleanValue(true)
 
-    @ModuleValue("Theme by world time", "Light by day, dark at night")
+    @ModuleValue("Follow day/night", "Switch between light and dark automatically")
     val autoTheme = BooleanValue(false)
+
+    /** 自动日夜的时间来源：0 = 游戏内时间，1 = 系统时间 */
+    @ModuleValue("Time source", "World time: follow the in-game sky. System time: follow your local clock.")
+    val themeSource = IntValue(0, 1, 0)
 
     @ModuleValue("Shuffle", "Play songs in random order")
     private val shuffle = BooleanValue(false)
@@ -107,6 +143,12 @@ class NeteaseMusicModule : Module() {
 
     @ModuleValue("Volume normalization", "Keep songs at a similar loudness")
     private val normalize = BooleanValue(true)
+
+    @ModuleValue("Cross-source fallback", "Try another online source when this one cannot play the song")
+    val crossSourceFallback = BooleanValue(true)
+
+    @ModuleValue("Fade in/out", "Smoothly fade the volume at the start and end of a song")
+    val fadePlayback = BooleanValue(true)
 
     @ModuleValue("Environment audio", "Echo follows the room you are in (size and materials), muffled underwater")
     private val envAudio = BooleanValue(true)
@@ -269,6 +311,8 @@ class NeteaseMusicModule : Module() {
 
     @EventHandler
     fun onHud(e: HudRenderEvent) {
+        // 播放器关闭时没有 MusicScreen 的每帧钩子，由 HUD 推进纯配色渐变（Song card / 灵动岛）
+        if (!MusicScreen.anyOpen) ThemeTransition.beginFrame(0f, 0f)
         if (!RoomAcoustics.debugRays) return
         val room = RoomAcoustics.room ?: return
         val lines = listOf(
@@ -311,20 +355,36 @@ class NeteaseMusicModule : Module() {
     fun onTick(e: TickEvent) {
         // 即使播放器被关闭，也要初始化并保存界面语言。
         applyLanguage()
-        // 跟随世界时间：白天浅色、夜里深色。改的是 theme 值，界面开着时由 MusicScreen 播扩散动画
+        // 听歌周报：本地累计播放时长（与周报 HUD 是否开启无关）
+        ListeningStats.tick()
+        // 自动日夜：按设置的时间来源切换浅色/深色。改的是 theme 值，界面开着时由 MusicScreen 播扩散动画
         if (autoTheme.get()) {
-            val darken = DangoMusic.instance.platform.skyDarken
-            if (darken != null) {
-                // 两边留一点差：天色在临界点来回抖时不会反复切
-                val night = if (Theme.mode == ThemeMode.DARK) darken >= 5 else darken >= 6
+            val night = if (themeSource.value == 1) {
+                // 系统时间：本地 18:00 到次日 06:00 算夜晚
+                val hour = java.time.LocalTime.now().hour
+                hour >= 18 || hour < 6
+            } else {
+                DangoMusic.instance.platform.dayTime?.let { day ->
+                    val t = ((day % 24000L) + 24000L) % 24000L
+                    // 原版：13000 ~ 23000 为夜晚，其余为白天
+                    t >= 13000L && t < 23000L
+                }
+            }
+            if (night != null) {
                 val mode = if (night) ThemeMode.DARK else ThemeMode.LIGHT
-                if (mode.ordinal != theme.value) theme.setValue(mode.ordinal)
+                if (mode.ordinal != theme.value) {
+                    theme.setValue(mode.ordinal)
+                    DangoLogger.info("Auto theme -> {} (source={}, dayTime={}, skyDarken={})",
+                        mode, themeSource.value,
+                        DangoMusic.instance.platform.dayTime ?: -1L,
+                        DangoMusic.instance.platform.skyDarken ?: -1)
+                }
             }
         }
         // 界面开着时交给 MusicScreen 播扩散动画；关着就先直接套用，让 Song card / 灵动岛也是对的配色
         if (!MusicScreen.anyOpen && !ThemeTransition.busy) {
             val mode = ThemeMode.of(theme.value)
-            if (mode != Theme.mode) ThemeTransition.applyImmediately(mode)
+            if (mode != Theme.mode) ThemeTransition.requestFade(mode)
         }
         followCover()
         Theme.lyricAccent = lyricAccent.get()
@@ -337,11 +397,14 @@ class NeteaseMusicModule : Module() {
         // 歌词模块一直开着（显示与否由 3D lyrics 控制）；等配置读回之后再检查
         if (++tickCount > 5) lyrics()?.let { if (!it.enabled) it.enabled = true }
         MusicPlayer.volume = volume.value
+        MusicPlayer.outputMode = audioOutput.value
         MusicPlayer.shuffle = shuffle.get()
 
         MusicPlayer.repeatOne = repeatOne.get()
 
         MusicPlayer.normalize = normalize.get()
+        MusicPlayer.crossSourceFallback = crossSourceFallback.get()
+        MusicPlayer.fadeMs = if (fadePlayback.get()) 200 else 0
 
         // 环境音效：设置和玩家周围的环境交给解码线程
         EnvironmentAudio.enabled = envAudio.get()

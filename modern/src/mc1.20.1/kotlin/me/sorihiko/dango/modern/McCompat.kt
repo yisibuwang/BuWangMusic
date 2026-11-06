@@ -43,6 +43,9 @@ internal object GlCache {
  * 每个版本在 src/mc<版本>/ 里放一份，构建时按版本选用，对外的样子完全一样。
  */
 internal object McCompat {
+    /** 游戏内一天中的时间（0..23999）；不在世界里时是 null */
+    fun levelDayTime(): Long? = Minecraft.getInstance().level?.dayTime
+
     /** 游戏（包括其他模组）已经加载完：加载画面已经消失 */
     fun gameLoaded(mc: Minecraft): Boolean = mc.overlay == null
 
@@ -149,6 +152,9 @@ internal object McCompat {
     /** 世界画完、开始画我们的东西之前（这些版本当前帧缓冲就是主画面，不用做什么） */
     fun beginWorld() {}
 
+    /** 这些版本直接问 RenderSystem 要投影（在 CPU 上），不用抄 */
+    fun captureWorldProjection(projection: Matrix4fc) {}
+
     /** 绑定帧缓冲（这些版本原版不记帧缓冲，直接绑） */
     fun bindFramebuffer(target: Int, id: Int) {
         Imm.flush()
@@ -192,6 +198,23 @@ internal object McCompat {
         vanillaDraw { buffers.endBatch() }
     }
 
+    /** 点阵字可以攒成一批交给原版（[drawTexts]） */
+    val batchesText: Boolean get() = true
+
+    /** 一批点阵字一起交给原版：字都放进同一个缓冲，最后只收尾、换帧缓冲一次 */
+    fun drawTexts(items: List<VanillaText>) {
+        val mc = Minecraft.getInstance()
+        val buffers = mc.renderBuffers().bufferSource()
+        for (t in items) {
+            mc.font.drawInBatch(
+                t.text, t.x, t.y, t.argb, false, t.pose, buffers,
+                Font.DisplayMode.SEE_THROUGH, 0, LightTexture.FULL_BRIGHT,
+            )
+        }
+        com.mojang.blaze3d.vertex.BufferUploader.invalidate()
+        vanillaDraw { buffers.endBatch() }
+    }
+
     fun currentScreen(): Screen? = Minecraft.getInstance().screen
 
     fun setScreen(screen: Screen?) {
@@ -203,6 +226,26 @@ internal object McCompat {
 
     /** 原版开始画界面之前（只有 26.x 用到） */
     fun beforeGui() {}
+
+    /** 只有参数本身可点击，复制值不包含提示、引号或额外空格。 */
+    private fun copyableChatMessage(message: String, copyText: String, copyHint: String): Component {
+        val at = message.indexOf(copyText)
+        if (copyText.isEmpty() || at < 0) return Component.literal(message)
+        val link = Component.literal(copyText).withStyle { style ->
+            val clickable = style.withColor(net.minecraft.ChatFormatting.AQUA).withUnderlined(true)
+                .withClickEvent(net.minecraft.network.chat.ClickEvent(net.minecraft.network.chat.ClickEvent.Action.COPY_TO_CLIPBOARD, copyText))
+            if (copyHint.isEmpty()) clickable else clickable.withHoverEvent(net.minecraft.network.chat.HoverEvent(net.minecraft.network.chat.HoverEvent.Action.SHOW_TEXT, Component.literal(copyHint)))
+        }
+        return Component.literal(message.substring(0, at)).append(link).append(message.substring(at + copyText.length))
+    }
+
+    /** 玩家进入世界后显示本地提示，不发送服务器聊天。 */
+    fun showChatMessage(message: String, copyText: String, copyHint: String): Boolean {
+        val client = Minecraft.getInstance()
+        if (client.player == null) return false
+        client.gui.chat.addMessage(copyableChatMessage(message, copyText, copyHint))
+        return true
+    }
 
     /** 不能用 OpenGL 时提示玩家（这些版本一定能用） */
     fun notifyNoGl(again: Boolean = false) {}

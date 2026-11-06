@@ -8,6 +8,8 @@ import me.sorihiko.dango.platform.PlayerKeyBinding
 
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
+import net.minecraft.tags.BlockTags
+import net.minecraft.world.level.block.LeavesBlock
 import net.minecraft.world.level.block.SoundType
 import net.minecraft.client.gui.screens.ChatScreen
 import net.minecraft.client.gui.screens.TitleScreen
@@ -81,6 +83,8 @@ object ModernPlatform : Platform {
 
     override val skyDarken: Int? get() = mc.level?.getSkyDarken()
 
+    override val dayTime: Long? get() = McCompat.levelDayTime()
+
     override val environment: ListenerEnvironment?
         get() {
             val p = mc.player ?: return null
@@ -91,7 +95,7 @@ object ModernPlatform : Platform {
             for (d in RAY_DIRECTIONS) {
                 for (step in 1..ENCLOSURE_RANGE) {
                     val state = level.getBlockState(BlockPos.containing(p.x + d[0] * step, p.eyeY + d[1] * step, p.z + d[2] * step))
-                    if (!state.isAir && state.fluidState.isEmpty) {
+                    if (!state.isAir && state.fluidState.isEmpty && !isAcousticLeaves(state)) {
                         hits++
                         break
                     }
@@ -105,6 +109,10 @@ object ModernPlatform : Platform {
             return ListenerEnvironment(p.isUnderWater, level.canSeeSky(eye), hits / RAY_DIRECTIONS.size.toFloat(), rain)
         }
 
+    // 树冠先按透声处理，避免森林被测成室内；同时兼容继承树叶类或注册树叶标签的模组方块。
+    private fun isAcousticLeaves(state: net.minecraft.world.level.block.state.BlockState): Boolean =
+        state.block is LeavesBlock || state.`is`(BlockTags.LEAVES)
+
     private val probe = BlockPos.MutableBlockPos()
     private val absorptionCache = java.util.IdentityHashMap<net.minecraft.world.level.block.state.BlockState, Float>()
 
@@ -113,7 +121,7 @@ object ModernPlatform : Platform {
         probe.set(x, y, z)
         val state = level.getBlockState(probe)
         return absorptionCache.getOrPut(state) {
-            if (state.isAir || !state.fluidState.isEmpty || state.getCollisionShape(level, probe).isEmpty) -1f
+            if (state.isAir || isAcousticLeaves(state) || !state.fluidState.isEmpty || state.getCollisionShape(level, probe).isEmpty) -1f
             else soundAbsorptionOf(state.soundType)
         }
     }
@@ -121,11 +129,15 @@ object ModernPlatform : Platform {
     override fun openAudioOutput(sampleRate: Int, channels: Int): me.sorihiko.dango.music.AudioOutput? =
         GameAudioOutput.open(sampleRate, channels)
 
+    override val hasGameAudio: Boolean get() = true
+
     override val player: PlayerPose?
         get() {
             val p = mc.player ?: return null
             return PlayerPose(p.x, p.eyeY, p.z, p.yRot, p.xRot)
         }
+
+    override fun showChatMessage(message: String, copyText: String, copyHint: String): Boolean = McCompat.showChatMessage(message, copyText, copyHint)
 
     override fun openMusicScreen() {
         if (McCompat.glAvailable) McCompat.setScreen(ModernMusicScreen(McCompat.currentScreen())) else McCompat.notifyNoGl(again = true)

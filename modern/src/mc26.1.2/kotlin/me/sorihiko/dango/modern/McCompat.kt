@@ -82,6 +82,9 @@ internal object GlCache {
  * - 显卡接口可以选 Vulkan，选了 Vulkan 时我们没法用 OpenGL 画，只放音乐、提示一下。
  */
 internal object McCompat {
+    /** 游戏内一天中的时间（0..23999）；26.x 用 overworld clock */
+    fun levelDayTime(): Long? = Minecraft.getInstance().level?.getOverworldClockTime()
+
     /** 游戏（包括其他模组）已经加载完 */
     fun gameLoaded(mc: Minecraft): Boolean = mc.isGameLoadFinished
 
@@ -210,6 +213,25 @@ internal object McCompat {
 
     private var lastNoGlNotice = 0L
 
+    /** 只有参数本身可点击，复制值不包含提示、引号或额外空格。 */
+    private fun copyableChatMessage(message: String, copyText: String, copyHint: String): Component {
+        val at = message.indexOf(copyText)
+        if (copyText.isEmpty() || at < 0) return Component.literal(message)
+        val link = Component.literal(copyText).withStyle { style ->
+            val clickable = style.withColor(net.minecraft.ChatFormatting.AQUA).withUnderlined(true)
+                .withClickEvent(net.minecraft.network.chat.ClickEvent.CopyToClipboard(copyText))
+            if (copyHint.isEmpty()) clickable else clickable.withHoverEvent(net.minecraft.network.chat.HoverEvent.ShowText(Component.literal(copyHint)))
+        }
+        return Component.literal(message.substring(0, at)).append(link).append(message.substring(at + copyText.length))
+    }
+
+    /** 玩家进入世界后显示本地提示，不发送服务器聊天。 */
+    fun showChatMessage(message: String, copyText: String, copyHint: String): Boolean {
+        val player = mc.player ?: return false
+        player.sendSystemMessage(copyableChatMessage(message, copyText, copyHint))
+        return true
+    }
+
     /**
      * 不能用 OpenGL 时在聊天栏提示：进游戏时提示一次；[again] = true（按了打开播放器的键）时再提示，
      * 不然按 M 没反应，玩家不知道为什么（两秒内只提示一次，免得连按刷屏）
@@ -295,6 +317,30 @@ internal object McCompat {
         }
     }
 
+    /** 原版这一帧画世界用的投影（含视角摇晃），上传显卡前由 mixin 抄下来 */
+    private val capturedProjection = Matrix4f()
+    private var projectionCaptured = false
+    private var loggedReadback = false
+
+    fun captureWorldProjection(projection: Matrix4fc) {
+        capturedProjection.set(projection)
+        projectionCaptured = true
+    }
+
+    /** 世界的投影：优先用抄下来的；这一帧没抄到才从显存读（读显存要等显卡，慢） */
+    private fun loadWorldProjection(dest: Matrix4f) {
+        if (projectionCaptured) {
+            dest.set(capturedProjection)
+            projectionCaptured = false
+            return
+        }
+        if (!loggedReadback) {
+            loggedReadback = true
+            DangoLogger.warn("Dango Music: world projection not captured, reading it back from the GPU")
+        }
+        readProjection(dest)
+    }
+
     private val matrixData = BufferUtils.createFloatBuffer(16)
 
     /** 从显存里读出原版当前的投影矩阵；读不到时用镜头的投影（不含视角摇晃） */
@@ -363,7 +409,7 @@ internal object McCompat {
 
     /** 世界画完、开始画我们的东西之前：记下世界的投影，切到主画面 */
     fun beginWorld() {
-        readProjection(worldProjection)
+        loadWorldProjection(worldProjection)
         if (offscreenGl) {
             VulkanBridge.beginWorld()
             return
@@ -449,6 +495,14 @@ internal object McCompat {
      * 用原版字体画一段像素字（[pose] 是模型矩阵），画在当前绑定的帧缓冲上。
      * 字形和位置都照原版算（Font.prepareText），只是最后用我们自己的着色器画出来。
      */
+    /** 这些版本每个字本来就经过自己的合批画，不用再攒 */
+    val batchesText: Boolean get() = false
+
+    /** 一批点阵字：逐个画 */
+    fun drawTexts(items: List<VanillaText>) {
+        for (t in items) drawText(t.text, t.x, t.y, t.argb, t.pose)
+    }
+
     fun drawText(text: String, x: Float, y: Float, argb: Int, pose: Matrix4f) {
         if (offscreenGl) {
             // 原版的字形贴图在 Vulkan 那边，读不到：用同样的点阵图自己画，每个字的宽度问原版

@@ -71,6 +71,9 @@ internal object GlCache {
  * 这里把这些差别补齐，让共用代码照旧直接用 OpenGL 画。
  */
 internal object McCompat {
+    /** 游戏内一天中的时间（0..23999）；不在世界里时是 null */
+    fun levelDayTime(): Long? = Minecraft.getInstance().level?.dayTime
+
     /** 游戏（包括其他模组）已经加载完：加载画面已经消失 */
     fun gameLoaded(mc: Minecraft): Boolean = mc.overlay == null
 
@@ -192,6 +195,30 @@ internal object McCompat {
         }
     }
 
+    /** 原版这一帧画世界用的投影（含视角摇晃），上传显卡前由 mixin 抄下来 */
+    private val capturedProjection = Matrix4f()
+    private var projectionCaptured = false
+    private var loggedReadback = false
+
+    fun captureWorldProjection(projection: Matrix4fc) {
+        capturedProjection.set(projection)
+        projectionCaptured = true
+    }
+
+    /** 世界的投影：优先用抄下来的；这一帧没抄到才从显存读（读显存要等显卡，慢） */
+    private fun loadWorldProjection(dest: Matrix4f) {
+        if (projectionCaptured) {
+            dest.set(capturedProjection)
+            projectionCaptured = false
+            return
+        }
+        if (!loggedReadback) {
+            loggedReadback = true
+            DangoLogger.warn("Dango Music: world projection not captured, reading it back from the GPU")
+        }
+        readProjection(dest)
+    }
+
     private val matrixData = BufferUtils.createFloatBuffer(16)
 
     /** 从显存里读出原版当前的投影矩阵；读不到时按视野自己算一个（不含视角摇晃） */
@@ -266,7 +293,7 @@ internal object McCompat {
 
     /** 世界画完、开始画我们的东西之前：记下世界的投影，切到主画面 */
     fun beginWorld() {
-        readProjection(worldProjection)
+        loadWorldProjection(worldProjection)
         bindFramebuffer(GL30.GL_FRAMEBUFFER, mainFramebuffer())
         val target = mc.mainRenderTarget
         Gl.viewport(0, 0, target.width, target.height)
@@ -310,6 +337,22 @@ internal object McCompat {
         vanillaDraw { buffers.endBatch() }
     }
 
+    /** 点阵字可以攒成一批交给原版（[drawTexts]） */
+    val batchesText: Boolean get() = true
+
+    /** 一批点阵字一起交给原版：字都放进同一个缓冲，最后只收尾、换帧缓冲一次 */
+    fun drawTexts(items: List<VanillaText>) {
+        val mc = Minecraft.getInstance()
+        val buffers = mc.renderBuffers().bufferSource()
+        for (t in items) {
+            mc.font.drawInBatch(
+                t.text, t.x, t.y, t.argb, false, t.pose, buffers,
+                Font.DisplayMode.SEE_THROUGH, 0, LightTexture.FULL_BRIGHT,
+            )
+        }
+        vanillaDraw { buffers.endBatch() }
+    }
+
     fun currentScreen(): Screen? = Minecraft.getInstance().screen
 
     fun setScreen(screen: Screen?) {
@@ -321,6 +364,26 @@ internal object McCompat {
 
     /** 原版开始画界面之前（只有 26.x 用到） */
     fun beforeGui() {}
+
+    /** 只有参数本身可点击，复制值不包含提示、引号或额外空格。 */
+    private fun copyableChatMessage(message: String, copyText: String, copyHint: String): Component {
+        val at = message.indexOf(copyText)
+        if (copyText.isEmpty() || at < 0) return Component.literal(message)
+        val link = Component.literal(copyText).withStyle { style ->
+            val clickable = style.withColor(net.minecraft.ChatFormatting.AQUA).withUnderlined(true)
+                .withClickEvent(net.minecraft.network.chat.ClickEvent.CopyToClipboard(copyText))
+            if (copyHint.isEmpty()) clickable else clickable.withHoverEvent(net.minecraft.network.chat.HoverEvent.ShowText(Component.literal(copyHint)))
+        }
+        return Component.literal(message.substring(0, at)).append(link).append(message.substring(at + copyText.length))
+    }
+
+    /** 玩家进入世界后显示本地提示，不发送服务器聊天。 */
+    fun showChatMessage(message: String, copyText: String, copyHint: String): Boolean {
+        val client = Minecraft.getInstance()
+        if (client.player == null) return false
+        client.gui.chat.addMessage(copyableChatMessage(message, copyText, copyHint))
+        return true
+    }
 
     /** 不能用 OpenGL 时提示玩家（这些版本一定能用） */
     fun notifyNoGl(again: Boolean = false) {}

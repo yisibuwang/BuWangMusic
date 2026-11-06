@@ -29,6 +29,15 @@ interface MusicSourceApi {
     fun recommend(): List<NeteasePlaylist> = emptyList()
     fun charts(): List<NeteasePlaylist> = emptyList()
     fun playlistTracks(id: Long): List<NeteaseTrack> = emptyList()
+
+    /** 有没有歌手页 */
+    val hasArtists: Boolean get() = false
+    /** 歌手信息和热门歌曲；[id] 是音源自己的歌手 ID */
+    fun artist(id: String): SourceArtist? = null
+    /** 歌手的专辑，当成歌单列出来（点开走 [playlistTracks]） */
+    fun artistAlbums(id: String): List<NeteasePlaylist> = emptyList()
+    /** 按名字找歌手 ID，找不到返回 "" */
+    fun findArtist(name: String): String = ""
 }
 
 object MusicSources {
@@ -36,11 +45,12 @@ object MusicSources {
     private val netease = object : MusicSourceApi {
         override val source = MusicSource.NETEASE
         override fun search(query: String) = NeteaseApi.search(query)
-        override fun songUrl(track: NeteaseTrack) = NeteaseApi.songUrl(track.id)
-        override fun lyrics(track: NeteaseTrack) = LyricsProvider.neteaseLyricById(track.id)
+        override fun songUrl(track: NeteaseTrack) = NeteaseApi.songUrl(track)
+        override fun lyrics(track: NeteaseTrack) = NeteaseApi.lyrics(track)
         override fun playlists(): List<NeteasePlaylist> {
             NeteaseApi.ensureCookieFile()
-            return NeteaseApi.userPlaylists()
+            val lists = NeteaseApi.userPlaylists()
+            return if (NeteaseApi.loggedIn) lists + NeteasePlaylist(NeteaseApi.CLOUD_ID, me.sorihiko.dango.i18n.I18n.text("Cloud drive"), 0, "", false) else lists
         }
         override fun recommend(): List<NeteasePlaylist> {
             // 登录了就在最前面放"每日推荐""私人 FM"（拿不到不影响下面的推荐歌单）
@@ -54,8 +64,14 @@ object MusicSources {
         override fun playlistTracks(id: Long) = when (id) {
             NeteaseApi.DAILY_ID -> NeteaseApi.dailySongs()
             NeteaseApi.FM_ID -> NeteaseApi.personalFm()
-            else -> NeteaseApi.playlistTracks(id)
+            NeteaseApi.CLOUD_ID -> NeteaseApi.cloudTracks()
+            // 歌手页里点开的专辑
+            else -> NeteaseApi.albumIdOf(id)?.let { NeteaseApi.albumTracks(it) } ?: NeteaseApi.playlistTracks(id)
         }
+        override val hasArtists get() = true
+        override fun artist(id: String) = id.toLongOrNull()?.let { NeteaseApi.artist(it) }
+        override fun artistAlbums(id: String) = id.toLongOrNull()?.let { NeteaseApi.artistAlbums(it) } ?: emptyList()
+        override fun findArtist(name: String) = NeteaseApi.findArtist(name).takeIf { it > 0 }?.toString().orEmpty()
     }
 
     fun api(source: MusicSource = selected): MusicSourceApi = when (source) {

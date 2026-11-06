@@ -68,6 +68,9 @@ interface Platform {
     /** 天黑的程度（原版的 sky darken：0 = 白天，11 = 半夜，下雨也会变暗）；不在世界里时是 null */
     val skyDarken: Int? get() = null
 
+    /** 游戏内一天中的时间（0..23999，0 = 清晨）；不在世界里时是 null */
+    val dayTime: Long? get() = null
+
     /** 玩家周围的环境（环境音效用）；不在世界里时是 null。在游戏线程上调用 */
     val environment: ListenerEnvironment? get() = null
 
@@ -79,6 +82,9 @@ interface Platform {
 
     // ---------------------------------------------------------------- 界面
 
+    /** 仅在本地聊天栏显示提示；世界未就绪时返回 false，不能向服务器发送聊天消息。 */
+    fun showChatMessage(message: String, copyText: String = "", copyHint: String = ""): Boolean = false
+
     /** 打开内置播放器 */
     fun openMusicScreen()
 
@@ -89,6 +95,9 @@ interface Platform {
      * 声音是 16 位有符号小端 PCM；打不开返回 null。
      */
     fun openAudioOutput(sampleRate: Int, channels: Int): me.sorihiko.dango.music.AudioOutput? = null
+
+    /** [openAudioOutput] 能不能用（设置里要不要显示"音频输出"） */
+    val hasGameAudio: Boolean get() = false
 }
 
 /**

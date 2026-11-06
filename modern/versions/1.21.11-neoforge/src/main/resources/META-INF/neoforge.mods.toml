@@ -23,6 +23,9 @@ versionRange="[21.11,)"
 ordering="NONE"
 side="BOTH"
 
+[[mixins]]
+config="dangomusic.mixins.json"
+
 [[dependencies.buwangmusic]]
 modId="minecraft"
 type="required"

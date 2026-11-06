@@ -81,6 +81,27 @@ object ThemeTransition {
     }
 
     /**
+     * 播放器关闭时的纯配色渐变：不抓帧、不做圆形扩散，只把 [Theme.palette] 平滑过渡到目标配色。
+     * 由 HUD 每帧调用 [beginFrame] 推进，Song card / 灵动岛就能跟着一起淡过去。
+     */
+    fun requestFade(mode: ThemeMode) {
+        if (mode == Theme.mode && !active) return
+        releaseSnapshot()
+        capturePending = false
+        pendingMode = null
+        centerX = 0f
+        centerY = 0f
+        radius = 1f
+        from = Theme.palette
+        to = Palette.of(mode)
+        Theme.mode = mode
+        startNanos = System.nanoTime()
+        durationMs = DURATION_MS
+        progress = 0f
+        active = true
+    }
+
+    /**
      * 每帧画完之后调用：需要换配色时抓下这一帧、开始过渡。
      * [width] / [height] 是逻辑尺寸，窗口大小一变就作废这张图。
      */

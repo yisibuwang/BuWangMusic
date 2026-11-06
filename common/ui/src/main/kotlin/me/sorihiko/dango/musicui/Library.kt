@@ -12,11 +12,21 @@ import me.sorihiko.dango.music.MusicSourceApi
 import me.sorihiko.dango.music.MusicSources
 import me.sorihiko.dango.music.PagedSearch
 import me.sorihiko.dango.music.SourceAccessException
+import me.sorihiko.dango.music.SourceArtist
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
-internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, LOCAL, BILI, SETTINGS }
+internal enum class Page { HOME, CHARTS, PLAYLIST, SEARCH, QUEUE, PARTY, LOCAL, BILI, SETTINGS, ARTIST, REPORT }
+
+/** 点进歌手页、从歌手页点进专辑之前的界面，返回时一层层退回去 */
+internal class PageSnapshot(
+    val page: Page,
+    val opened: NeteasePlaylist?,
+    val backPage: Page?,
+    val artist: ArtistRef?,
+    val lastQuery: String,
+)
 
 /** 关掉播放器再打开时还保留的界面状态 */
 internal object ScreenState {
@@ -29,6 +39,10 @@ internal object ScreenState {
     /** 歌单页显示方式：false = 列表，true = 封面墙 */
     var coverView = false
     var lastQuery = ""
+    /** 歌手页显示的歌手 */
+    var artist: ArtistRef? = null
+    /** 进歌手页 / 从歌手页进专辑时记下来的上一层（最多记 20 层） */
+    val trail = ArrayDeque<PageSnapshot>()
 
     // 液态玻璃画布（和菜单同一套），第一次打开播放器时创建
     var context: GuiCanvas? = null
@@ -41,8 +55,15 @@ internal object Library {
         private set
     @Volatile var playlistsLoading = false
         private set
-    @Volatile var status = ""
-        private set
+    // 文本和期限一起发布，避免后台加载结果被旧提示的到期逻辑清掉。
+    private class Status(val text: String, val expiresAt: Long = 0L)
+    @Volatile private var statusState = Status("")
+    var status: String
+        get() {
+            val value = statusState
+            return if (value.expiresAt != 0L && System.nanoTime() - value.expiresAt >= 0L) "" else value.text
+        }
+        private set(value) { statusState = Status(value) }
     @Volatile var recommend: List<NeteasePlaylist>? = null
         private set
     @Volatile var recommendLoading = false
@@ -248,6 +269,10 @@ internal object Library {
 
     fun showStatus(message: String) { status = message }
 
+    fun showTemporaryStatus(message: String, durationMs: Long) {
+        statusState = Status(message, System.nanoTime() + durationMs.coerceIn(0L, 60_000L) * 1_000_000L)
+    }
+
     // 网易云红心：列表在后台拉，点了在后台改
     @Volatile private var likedCheckedAt = 0L
     @Volatile var liking = false
@@ -270,5 +295,69 @@ internal object Library {
             if (!ok) status = if (like) "Could not add to Liked songs. Please retry." else "Could not remove from Liked songs. Please retry."
         }
     }
+    // ---------------------------------------------------------------- 歌手（各音源的歌手页）
+
+    /** 缓存的键：音源 + 歌手 ID */
+    private fun artistKey(source: MusicSource, id: String) = "${source.key}:$id"
+
+    private val artists = ConcurrentHashMap<String, SourceArtist>()
+    private val artistAlbumLists = ConcurrentHashMap<String, List<NeteasePlaylist>>()
+    private val artistLoading = ConcurrentHashMap.newKeySet<String>()
+    private val artistFailedIds = ConcurrentHashMap.newKeySet<String>()
+    /** 按名字找到的歌手 ID（"" = 没找到） */
+    private val artistIds = ConcurrentHashMap<String, String>()
+    private val artistResolving = ConcurrentHashMap.newKeySet<String>()
+
+    fun artist(source: MusicSource, id: String): SourceArtist? = artists[artistKey(source, id)]
+    fun artistAlbums(source: MusicSource, id: String): List<NeteasePlaylist>? = artistAlbumLists[artistKey(source, id)]
+    fun artistFailed(source: MusicSource, id: String): Boolean = artistFailedIds.contains(artistKey(source, id))
+
+    /** 后台拉歌手信息，拿到后再拉专辑（已经有了或者正在拉就不重复） */
+    fun loadArtist(source: MusicSource, id: String) {
+        val key = artistKey(source, id)
+        if (artists.containsKey(key) || artistFailedIds.contains(key) || !artistLoading.add(key)) return
+        val api = MusicSources.api(source)
+        worker.execute {
+            try {
+                val info = api.artist(id)
+                if (info == null) {
+                    artistFailedIds.add(key)
+                } else {
+                    artists[key] = info
+                    artistAlbumLists[key] = try { api.artistAlbums(id) } catch (e: Exception) {
+                        me.sorihiko.dango.DangoLogger.warn("{} artist albums failed: {}", source.key, e.toString())
+                        emptyList()
+                    }
+                }
+            } catch (e: Exception) {
+                me.sorihiko.dango.DangoLogger.warn("{} artist load failed: {}", source.key, e.toString())
+                artistFailedIds.add(key)
+            } finally {
+                artistLoading.remove(key)
+            }
+        }
+    }
+
+    /** 歌手 ID：还在按名字找时返回 null，找不到返回 "" */
+    fun artistIdFor(source: MusicSource, name: String): String? {
+        val key = artistKey(source, name)
+        artistIds[key]?.let { return it }
+        if (artistResolving.add(key)) {
+            val api = MusicSources.api(source)
+            worker.execute {
+                val id = try { api.findArtist(name) } catch (_: Exception) { "" }
+                artistIds[key] = id
+                artistResolving.remove(key)
+            }
+        }
+        return null
+    }
+
+    /** 加载失败后点了重试 */
+    fun retryArtist(source: MusicSource, name: String, id: String?) {
+        if (id.isNullOrEmpty()) artistIds.remove(artistKey(source, name))
+        else artistFailedIds.remove(artistKey(source, id))
+    }
+
     private fun publicError(error: Exception) = if (error is SourceAccessException) error.message.orEmpty() else "Source unavailable. Please retry."
 }

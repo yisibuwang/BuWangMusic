@@ -40,6 +40,8 @@ object I18n {
     }
 
     private fun translateMessage(source: String): String {
+        val stopped = " · Auto-skip stopped after repeated playback failures."
+        if (source.endsWith(stopped)) return message(source.removeSuffix(stopped)) + " · " + text(stopped.removePrefix(" · "))
         val exact = text(source)
         if (exact != source) return exact
         // 中文界面下运行期状态本来就是中文，按原文显示；下面的规则只用于中 → 英

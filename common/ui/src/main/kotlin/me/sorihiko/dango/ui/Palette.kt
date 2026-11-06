@@ -75,7 +75,7 @@ class Palette(
             panel = Color(0.075f, 0.080f, 0.098f, 0.985f),
             overlayBase = Color(1f, 1f, 1f, 1f),
             backdrop = Color(0.075f, 0.085f, 0.11f, 1f),
-            scrim = Color(0f, 0f, 0f, 0.22f),
+            scrim = Color(0f, 0f, 0f, 0f),
             window = GlassStyle(
                 radius = 30f,
                 tint = Color(0.10f, 0.10f, 0.13f, 0.18f),
